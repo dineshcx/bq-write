@@ -1,6 +1,6 @@
 {
   "name": "bq-write",
-  "version": "1.0.2",
+  "version": "1.2.0",
   "description": "BigQuery Natural Language Query CLI using Claude",
   "main": "dist/index.js",
   "bin": {
