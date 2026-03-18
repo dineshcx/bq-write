@@ -1,5 +1,7 @@
 # bq-write
 
+> Query your app's BigQuery dataset (Fivetran / Datastream / Airbyte sync) in plain English — using your ORM entities as context.
+
 Ask questions about your data in plain English. `bq-write` reads your app's source code to understand your schema — entity names, column types, enum values, table relationships — then generates accurate BigQuery SQL and runs it.
 
 ```
@@ -25,6 +27,12 @@ There are 4 completed conversations in project 661.
 ```
 
 ---
+
+## Who is this for?
+
+If your BigQuery dataset is a **mirror of an application database** — synced via Datastream, Fivetran, Airbyte, or a custom pipeline — the schema alone tells you nothing. Column names like `status`, `type`, or `role` are meaningless without knowing that `status = 'ACT'` means active, or that `contributor` is what your app calls a user.
+
+`bq-write` bridges that gap by reading your application's source code (TypeORM entities, Django models, Prisma schema, etc.) alongside the live dataset — so queries are grounded in the actual business logic, not guesswork.
 
 ## How it works
 

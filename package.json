@@ -1,7 +1,7 @@
 {
   "name": "bq-write",
   "version": "1.2.1",
-  "description": "BigQuery Natural Language Query CLI",
+  "description": "Query your app's BigQuery dataset (Fivetran / Datastream / Airbyte sync) in plain English — using your ORM entities as context.",
   "main": "dist/index.js",
   "bin": {
     "bq-write": "dist/index.js"
