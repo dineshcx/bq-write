@@ -7,27 +7,81 @@ import { loadConfig } from './config';
 import { initPipeline, askQuestion } from './pipeline';
 import { loadRecentDatasets, saveDataset } from './local/datasets';
 import { buildFileIndex, saveFileIndex, loadFileIndex } from './local/indexer';
-import { getLastModel, saveLastModel } from './local/preferences';
+import { getLastModel, saveLastModel, getScanDir, saveScanDir } from './local/preferences';
+import { isMonorepo, listPackages } from './local/monorepo';
 import { MODEL_OPTIONS, ModelOption } from './llm/types';
 import { createProvider } from './llm/factory';
 import { displayError } from './utils/display';
+import { loadGlobalConfig, saveGlobalConfig, configFilePath } from './global/config';
 
 const repoDir = path.resolve(process.cwd());
 
+async function runSetup(): Promise<void> {
+  const existing = loadGlobalConfig();
+  console.log(chalk.bold('\nAPI Key Setup') + chalk.dim(' — press Enter to keep existing value\n'));
+
+  try {
+    const anthropicApiKey = await input({
+      message: 'Anthropic API key',
+      default: existing.anthropicApiKey ?? '',
+      transformer: (v) => v ? '****' + v.slice(-4) : chalk.dim('(none)'),
+    });
+
+    const openaiApiKey = await input({
+      message: 'OpenAI API key (optional)',
+      default: existing.openaiApiKey ?? '',
+      transformer: (v) => v ? '****' + v.slice(-4) : chalk.dim('(skip)'),
+    });
+
+    saveGlobalConfig({
+      anthropicApiKey: anthropicApiKey || undefined,
+      openaiApiKey: openaiApiKey || undefined,
+    });
+
+    console.log(chalk.green(`\nSaved to ${configFilePath()}\n`));
+  } catch {
+    process.exit(0);
+  }
+}
+
+async function pickScanDir(repoDir: string): Promise<string> {
+  const saved = getScanDir(repoDir);
+  const packages = listPackages(repoDir);
+  const CHANGE = '  Change app selection';
+  const FULL_REPO = '  Entire repo';
+
+  if (saved) {
+    const choice = await select({
+      message: 'Monorepo detected — scoped app',
+      choices: [
+        { name: saved, value: saved },
+        { name: chalk.dim(CHANGE), value: CHANGE },
+      ],
+    });
+    if (choice !== CHANGE) return choice;
+  }
+
+  const choice = await select({
+    message: 'Monorepo detected — which app maps to this dataset?',
+    choices: [
+      ...packages.map((p) => ({ name: p, value: p })),
+      { name: chalk.dim(FULL_REPO), value: '' },
+    ],
+  });
+
+  return choice;
+}
+
 async function pickModel(config: ReturnType<typeof loadConfig>, repoDir: string): Promise<ModelOption> {
-  // Filter to models whose provider key is available
   const available = MODEL_OPTIONS.filter((m) =>
     m.provider === 'anthropic' ? !!config.anthropicApiKey : !!config.openaiApiKey
   );
 
-  if (available.length === 0) {
-    throw new Error('No API keys found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.');
-  }
+  if (available.length === 0) throw new Error('No API keys found.');
+  if (available.length === 1) return available[0];
 
   const lastModel = getLastModel(repoDir);
   const defaultOption = available.find((m) => m.model === lastModel) ?? available[0];
-
-  if (available.length === 1) return available[0];
 
   const chosen = await select({
     message: 'Select a model',
@@ -64,9 +118,11 @@ async function pickDataset(repoDir: string): Promise<string> {
   });
 }
 
-function runIndex(repoDir: string): ReturnType<typeof buildFileIndex> {
-  process.stdout.write(chalk.dim('Indexing project files...'));
-  const index = buildFileIndex(repoDir);
+function runIndex(repoDir: string, scanDir: string): ReturnType<typeof buildFileIndex> {
+  const scanPath = scanDir ? path.join(repoDir, scanDir) : repoDir;
+  const label = scanDir || 'project';
+  process.stdout.write(chalk.dim(`Indexing ${label}...`));
+  const index = buildFileIndex(scanPath);
   saveFileIndex(repoDir, index);
   process.stdout.write(chalk.dim(` ${index.files.length} files indexed.\n\n`));
   return index;
@@ -77,7 +133,8 @@ async function main() {
 
   // Handle reindex command
   if (process.argv[2] === 'reindex') {
-    const index = runIndex(repoDir);
+    const scanDir = getScanDir(repoDir) ?? '';
+    const index = runIndex(repoDir, scanDir);
     const categories = [...new Set(index.files.map((f) => f.category))];
     categories.forEach((cat) => {
       const count = index.files.filter((f) => f.category === cat).length;
@@ -87,22 +144,41 @@ async function main() {
     return;
   }
 
+  // Load config — auto-redirect to setup if no keys found
   let config;
   try {
     config = loadConfig();
-  } catch (err) {
-    displayError(err instanceof Error ? err.message : String(err));
-    process.exit(1);
+  } catch {
+    console.log(chalk.yellow('No API keys configured. Let\'s set them up.\n'));
+    await runSetup();
+    try {
+      config = loadConfig();
+    } catch (err) {
+      displayError(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  }
+
+  // Resolve scan dir (monorepo-aware)
+  let scanDir = getScanDir(repoDir) ?? '';
+  try {
+    if (isMonorepo(repoDir)) {
+      scanDir = await pickScanDir(repoDir);
+      saveScanDir(repoDir, scanDir);
+    }
+  } catch {
+    process.exit(0);
   }
 
   // File index
   let fileIndex = loadFileIndex(repoDir);
   if (!fileIndex) {
-    fileIndex = runIndex(repoDir);
+    fileIndex = runIndex(repoDir, scanDir);
   } else {
     const age = Math.round((Date.now() - new Date(fileIndex.createdAt).getTime()) / 3600000);
     const ageStr = age < 24 ? `${age}h ago` : `${Math.round(age / 24)}d ago`;
-    console.log(chalk.dim(`Index: ${fileIndex.files.length} files (indexed ${ageStr}) — run \`bq-write reindex\` to refresh\n`));
+    const scope = scanDir || 'full repo';
+    console.log(chalk.dim(`Index: ${fileIndex.files.length} files from ${scope} (${ageStr}) — run \`bq-write reindex\` to refresh\n`));
   }
 
   let modelOption: ModelOption;
@@ -120,7 +196,7 @@ async function main() {
 
   let provider;
   try {
-    provider = createProvider(modelOption, {
+    provider = createProvider(modelOption!, {
       anthropicApiKey: config.anthropicApiKey,
       openaiApiKey: config.openaiApiKey,
     });
@@ -131,16 +207,17 @@ async function main() {
 
   let pipeline;
   try {
-    pipeline = initPipeline(dataset, repoDir, config, fileIndex, provider);
+    pipeline = initPipeline(dataset!, repoDir, scanDir, config, fileIndex, provider!);
   } catch (err) {
     displayError(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
 
-  console.log(chalk.dim(`\nModel   : ${modelOption.label.trim()}`));
-  console.log(chalk.dim(`Dataset : ${dataset}`));
-  console.log(chalk.dim(`Project : ${repoDir}`));
-  console.log(chalk.dim('Type your question, or `exit` to quit.\n'));
+  const scope = scanDir || 'full repo';
+  console.log(chalk.dim(`\nModel   : ${modelOption!.label.trim()}`));
+  console.log(chalk.dim(`Dataset : ${dataset!}`));
+  console.log(chalk.dim(`Project : ${repoDir} (${scope})`));
+  console.log(chalk.dim('Type your question, or /setup, /switch, /reindex, exit.\n'));
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -160,18 +237,42 @@ async function main() {
       return;
     }
 
-    if (question === 'switch') {
+    if (question === '/setup') {
+      rl.pause();
+      await runSetup();
+      rl.resume();
+      rl.prompt();
+      return;
+    }
+
+    if (question === '/switch') {
       rl.close();
       await main();
       return;
     }
 
+    if (question === '/reindex') {
+      runIndex(repoDir, scanDir);
+      rl.prompt();
+      return;
+    }
+
+    if (question === '/help') {
+      console.log(chalk.dim('\n  /setup    — update API keys'));
+      console.log(chalk.dim('  /switch   — change model or dataset'));
+      console.log(chalk.dim('  /reindex  — re-scan project files'));
+      console.log(chalk.dim('  exit      — quit\n'));
+      rl.prompt();
+      return;
+    }
+
+    rl.pause();
     try {
-      await askQuestion(pipeline, question);
+      await askQuestion(pipeline!, question);
     } catch (err) {
       displayError(err instanceof Error ? err.message : String(err));
     }
-
+    rl.resume();
     rl.prompt();
   });
 

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { getCacheDir } from './cacheDir';
 
 export interface IndexedFile {
   path: string;       // relative to repoDir
@@ -19,26 +20,41 @@ interface CategoryRule {
 }
 
 const CATEGORY_RULES: CategoryRule[] = [
-  // ORM models
-  { pattern: /\/models\.py$/, category: 'ORM Models', priority: 1 },
-  { pattern: /\/models\/[^/]+\.py$/, category: 'ORM Models', priority: 1 },
-  { pattern: /\/schema\.prisma$/, category: 'ORM Models', priority: 1 },
-  { pattern: /\/schema\.rb$/, category: 'ORM Models', priority: 1 },
-  { pattern: /\/entities\/[^/]+\.ts$/, category: 'ORM Models', priority: 1 },
-  { pattern: /\/models\/[^/]+\.ts$/, category: 'ORM Models', priority: 1 },
+  // ── Python (Django, SQLAlchemy, FastAPI) ──────────────────────────────────
+  { pattern: /\/models\.py$/, category: 'Models', priority: 1 },
+  { pattern: /\/models\/[^/]+\.py$/, category: 'Models', priority: 1 },
 
-  // Migrations
-  { pattern: /\/migrations\/[^/]+\.(py|rb|ts|js|sql)$/, category: 'Migrations', priority: 2 },
-  { pattern: /\/versions\/[^/]+\.py$/, category: 'Migrations', priority: 2 },
-  { pattern: /\/db\/migrate\/[^/]+\.(rb)$/, category: 'Migrations', priority: 2 },
+  // ── Ruby on Rails (ActiveRecord) ─────────────────────────────────────────
+  { pattern: /\/app\/models\/[^/]+\.rb$/, category: 'Models', priority: 1 },
+  { pattern: /\/db\/schema\.rb$/, category: 'Models', priority: 1 },
 
-  // SQL / Schema
-  { pattern: /\/db\/schema\.rb$/, category: 'Schema', priority: 3 },
-  { pattern: /[^/]+\.sql$/, category: 'Schema', priority: 3 },
+  // ── Prisma ────────────────────────────────────────────────────────────────
+  { pattern: /\/schema\.prisma$/, category: 'Models', priority: 1 },
 
-  // API schemas
-  { pattern: /\.(graphql|gql)$/, category: 'GraphQL', priority: 4 },
-  { pattern: /\/(openapi|swagger)\.(ya?ml|json)$/, category: 'API Schema', priority: 4 },
+  // ── TypeORM / NestJS ──────────────────────────────────────────────────────
+  { pattern: /\/entities\/[^/]+\.ts$/, category: 'Models', priority: 1 },
+  { pattern: /[^/]+\.entity\.ts$/, category: 'Models', priority: 1 },
+
+  // ── Sequelize ─────────────────────────────────────────────────────────────
+  { pattern: /\/models\/[^/]+\.(ts|js)$/, category: 'Models', priority: 1 },
+
+  // ── Mongoose ──────────────────────────────────────────────────────────────
+  { pattern: /[^/]+\.model\.(ts|js)$/, category: 'Models', priority: 1 },
+  { pattern: /\/schemas\/[^/]+\.(ts|js)$/, category: 'Models', priority: 1 },
+
+  // ── Laravel / Eloquent (PHP) ──────────────────────────────────────────────
+  { pattern: /\/app\/Models\/[^/]+\.php$/, category: 'Models', priority: 1 },
+
+  // ── Spring / Hibernate (Java) ─────────────────────────────────────────────
+  { pattern: /\/entity\/[^/]+\.java$/, category: 'Models', priority: 1 },
+  { pattern: /[^/]+Entity\.java$/, category: 'Models', priority: 1 },
+
+  // ── GORM (Go) ─────────────────────────────────────────────────────────────
+  { pattern: /\/models\/[^/]+\.go$/, category: 'Models', priority: 1 },
+
+  // ── GraphQL / OpenAPI (schema = entity definitions) ──────────────────────
+  { pattern: /\.(graphql|gql)$/, category: 'GraphQL', priority: 2 },
+  { pattern: /\/(openapi|swagger)\.(ya?ml|json)$/, category: 'API Schema', priority: 2 },
 ];
 
 const SKIP_PATTERNS = [
@@ -66,26 +82,33 @@ function getCategory(filePath: string): { category: string; priority: number } |
   return null;
 }
 
-function walkDir(dir: string): string[] {
+const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', 'vendor', '.next', '.nuxt',
+  '__pycache__', '.venv', 'venv', 'coverage', '.cache', 'tmp', 'log', 'logs',
+]);
+
+function walkDir(rootDir: string): string[] {
   const results: string[] = [];
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...walkDir(fullPath));
-    } else if (entry.isFile()) {
-      results.push(fullPath);
+  const queue: string[] = [rootDir];
+
+  while (queue.length > 0) {
+    const dir = queue.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) queue.push(path.join(dir, entry.name));
+      } else if (entry.isFile()) {
+        results.push(path.join(dir, entry.name));
+      }
     }
   }
   return results;
 }
-
-const INDEX_FILE = '.bq-write/files.json';
 
 export function buildFileIndex(repoDir: string): FileIndex {
   const allFiles = walkDir(repoDir);
@@ -110,17 +133,19 @@ export function buildFileIndex(repoDir: string): FileIndex {
   };
 }
 
+function getIndexPath(repoDir: string): string {
+  return path.join(getCacheDir(repoDir), 'files.json');
+}
+
 export function saveFileIndex(repoDir: string, index: FileIndex): void {
-  const indexPath = path.join(repoDir, INDEX_FILE);
-  fs.mkdirSync(path.dirname(indexPath), { recursive: true });
-  fs.writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+  fs.writeFileSync(getIndexPath(repoDir), JSON.stringify(index, null, 2), 'utf-8');
 }
 
 export function loadFileIndex(repoDir: string): FileIndex | null {
-  const indexPath = path.join(repoDir, INDEX_FILE);
-  if (!fs.existsSync(indexPath)) return null;
+  const p = getIndexPath(repoDir);
+  if (!fs.existsSync(p)) return null;
   try {
-    return JSON.parse(fs.readFileSync(indexPath, 'utf-8')) as FileIndex;
+    return JSON.parse(fs.readFileSync(p, 'utf-8')) as FileIndex;
   } catch {
     return null;
   }

@@ -1,16 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
-
-const CACHE_DIR = '.bq-write';
-const PREFS_FILE = 'preferences.json';
+import { getCacheDir } from './cacheDir';
 
 interface Preferences {
   lastModel?: string;
-  recentDatasets?: string[];
+  scanDir?: string;   // relative path within repo (for monorepos)
 }
 
 function getPrefsPath(repoDir: string): string {
-  return path.join(repoDir, CACHE_DIR, PREFS_FILE);
+  return path.join(getCacheDir(repoDir), 'preferences.json');
 }
 
 function load(repoDir: string): Preferences {
@@ -19,16 +17,20 @@ function load(repoDir: string): Preferences {
   try { return JSON.parse(fs.readFileSync(p, 'utf-8')) as Preferences; } catch { return {}; }
 }
 
-function save(repoDir: string, prefs: Preferences): void {
-  const dir = path.join(repoDir, CACHE_DIR);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(getPrefsPath(repoDir), JSON.stringify(prefs, null, 2), 'utf-8');
-}
-
 export function getLastModel(repoDir: string): string | undefined {
   return load(repoDir).lastModel;
 }
 
 export function saveLastModel(repoDir: string, model: string): void {
-  save(repoDir, { ...load(repoDir), lastModel: model });
+  const p = getPrefsPath(repoDir);
+  fs.writeFileSync(p, JSON.stringify({ ...load(repoDir), lastModel: model }, null, 2), 'utf-8');
+}
+
+export function getScanDir(repoDir: string): string | undefined {
+  return load(repoDir).scanDir;
+}
+
+export function saveScanDir(repoDir: string, scanDir: string): void {
+  const p = getPrefsPath(repoDir);
+  fs.writeFileSync(p, JSON.stringify({ ...load(repoDir), scanDir }, null, 2), 'utf-8');
 }

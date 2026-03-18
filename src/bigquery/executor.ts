@@ -21,30 +21,12 @@ export interface QueryResult {
   schema: ColumnSchema[];
 }
 
-export async function listTables(ref: DatasetRef): Promise<TableSchema[]> {
+// Returns only table names — fast single API call.
+// Use getTableSchema() to fetch columns for a specific table.
+export async function listTables(ref: DatasetRef): Promise<string[]> {
   const bq = getBigQueryClient(ref.projectId);
-  const dataset = bq.dataset(ref.datasetId);
-  const [tables] = await dataset.getTables();
-
-  const schemas: TableSchema[] = [];
-  for (const table of tables) {
-    const [metadata] = await table.getMetadata();
-    const fields: ColumnSchema[] = (metadata.schema?.fields ?? []).map(
-      (f: { name: string; type: string; mode: string; description?: string }) => ({
-        name: f.name,
-        type: f.type,
-        mode: f.mode ?? 'NULLABLE',
-        description: f.description,
-      })
-    );
-    schemas.push({
-      tableId: table.id ?? '',
-      columns: fields,
-      description: metadata.description,
-      numRows: metadata.numRows,
-    });
-  }
-  return schemas;
+  const [tables] = await bq.dataset(ref.datasetId).getTables();
+  return tables.map((t) => t.id ?? '').filter(Boolean);
 }
 
 export async function getTableSchema(ref: DatasetRef, tableId: string): Promise<TableSchema> {

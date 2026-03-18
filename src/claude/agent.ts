@@ -1,10 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as readline from 'readline';
 import chalk from 'chalk';
+import { input as inp } from '@inquirer/prompts';
+import ora from 'ora';
 import { LLMProvider, LLMMessage, ContentBlock, ToolDefinition } from '../llm/types';
 import { DatasetRef } from '../bigquery/client';
 import { listTables, getTableSchema, runQuery, QueryResult } from '../bigquery/executor';
+import { isCredentialError, printCredentialHelp } from '../bigquery/auth';
 import { displayQueryResult } from '../utils/display';
 
 export interface AgentOptions {
@@ -47,7 +49,7 @@ const TOOLS: ToolDefinition[] = [
   },
   {
     name: 'list_tables',
-    description: 'List all BigQuery tables in the dataset with their schemas.',
+    description: 'List all table names in the BigQuery dataset. Use get_table_schema to fetch columns for a specific table.',
     parameters: { type: 'object', properties: {}, required: [] },
   },
   {
@@ -99,6 +101,7 @@ export async function runAgentTurn(
 ): Promise<AgentResult> {
   let iterationCount = 0;
   let lastQueryResult: QueryResult | undefined;
+  const spinner = ora({ color: 'gray' });
 
   const localMessages: LLMMessage[] = [...messages];
 
@@ -159,25 +162,28 @@ export async function runAgentTurn(
           }
 
           case 'list_tables': {
-            console.log(chalk.dim('  → Listing BQ tables...'));
+            spinner.start(chalk.dim('Fetching table list...'));
             const tables = await listTables(options.datasetRef);
+            spinner.stopAndPersist({ symbol: chalk.dim('→'), text: chalk.dim(`Found ${tables.length} tables`) });
             resultContent = JSON.stringify(tables, null, 2);
             break;
           }
 
           case 'get_table_schema': {
             const tableId = input['table_id'] as string;
-            console.log(chalk.dim(`  → BQ schema: ${tableId}`));
+            spinner.start(chalk.dim(`Fetching schema: ${tableId}`));
             const schema = await getTableSchema(options.datasetRef, tableId);
+            spinner.stopAndPersist({ symbol: chalk.dim('→'), text: chalk.dim(`Schema: ${tableId} (${schema.columns.length} columns)`) });
             resultContent = JSON.stringify(schema, null, 2);
             break;
           }
 
           case 'run_query': {
             const sql = input['sql'] as string;
-            console.log(chalk.dim(`  → Running query...`));
-            console.log(chalk.dim(`     ${sql.split('\n')[0].trim()}`));
+            console.log(chalk.dim('\n' + sql + '\n'));
+            spinner.start(chalk.dim('Running query...'));
             const result = await runQuery(options.datasetRef, sql, options.maxResults);
+            spinner.stopAndPersist({ symbol: chalk.dim('→'), text: chalk.dim(`Query done — ${result.totalRows} row(s)`) });
             lastQueryResult = result;
             displayQueryResult(result);
             resultContent = JSON.stringify({
@@ -191,8 +197,8 @@ export async function runAgentTurn(
 
           case 'ask_clarification': {
             const question = input['question'] as string;
-            console.log(chalk.yellow(`\n${question}`));
-            resultContent = await promptUser('> ');
+            console.log('');
+            resultContent = await inp({ message: chalk.yellow(question) });
             break;
           }
 
@@ -200,6 +206,12 @@ export async function runAgentTurn(
             resultContent = `Unknown tool: ${toolCall.name}`;
         }
       } catch (err) {
+        if (isCredentialError(err)) {
+          printCredentialHelp();
+          // Abort the whole turn — no point continuing without BQ access
+          messages.push(...localMessages.slice(messages.length));
+          return { finalText: '', queryResult: lastQueryResult };
+        }
         resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
         console.error(chalk.red(`  [${toolCall.name}] ${resultContent}`));
       }
@@ -217,9 +229,3 @@ export async function runAgentTurn(
   };
 }
 
-function promptUser(prompt: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => { rl.close(); resolve(answer.trim()); });
-  });
-}
