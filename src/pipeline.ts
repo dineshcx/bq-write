@@ -2,32 +2,31 @@ import Anthropic from '@anthropic-ai/sdk';
 import chalk from 'chalk';
 import { Config } from './config';
 import { parseDatasetRef, DatasetRef } from './bigquery/client';
-import { loadContext } from './local/cache';
 import { runAgentTurn, AgentOptions } from './claude/agent';
 
-function buildSystemPrompt(ref: DatasetRef, codeContext: string): string {
+function buildSystemPrompt(ref: DatasetRef, repoDir: string): string {
   const fqPrefix = `${ref.projectId}.${ref.datasetId}`;
   return `You are a BigQuery SQL expert. Your job is to translate natural-language questions into accurate BigQuery SQL queries and execute them.
 
 ## Dataset
 Target dataset: \`${fqPrefix}\`
 
-## Rules
-- Always use fully-qualified table references: \`${fqPrefix}.table_name\`
-- Never use \`SELECT *\`. Always name columns explicitly.
-- Add \`LIMIT 1000\` for exploratory queries unless the user asks for all rows.
-- Use the source code context below to understand column semantics, enum values, and table relationships — but rely on the live BigQuery schema (via list_tables / get_table_schema) for actual column names and types.
-- If a question is ambiguous, use ask_clarification before generating SQL.
-- After running a query, briefly summarize the results in plain English.
+## Project directory
+The user's application source code is at: \`${repoDir}\`
+You have access to \`list_directory\` and \`read_file\` tools to explore it.
 
 ## Workflow
-1. Call \`list_tables\` to see what's available.
-2. If needed, call \`get_table_schema\` for a specific table.
-3. Generate and execute SQL with \`run_query\`.
-4. Summarize the results.
+1. Use \`list_directory\` and \`read_file\` to find and read the files relevant to the question — model definitions, migrations, schema files, etc. Only read what is needed.
+2. Call \`list_tables\` to see the live BigQuery schema.
+3. Use what you learned from the source code to understand column semantics, enum values, and relationships. Use the live BQ schema for actual column names and types.
+4. Write and execute SQL with \`run_query\`.
+5. Summarize the results in plain English.
 
-## Source Code Context
-${codeContext || '_No context found. Run `bq-write init` in your project directory first._'}
+## SQL rules
+- Always use fully-qualified table references: \`${fqPrefix}.table_name\`
+- Never use \`SELECT *\`. Name columns explicitly.
+- Add \`LIMIT 1000\` for exploratory queries unless the user asks for all rows.
+- If a question is ambiguous, use \`ask_clarification\` before writing SQL.
 `;
 }
 
@@ -39,20 +38,13 @@ export interface Pipeline {
 
 export function initPipeline(dataset: string, repoDir: string, config: Config): Pipeline {
   const datasetRef = parseDatasetRef(dataset);
-  const codeContext = loadContext(repoDir) ?? '';
-
-  if (!codeContext) {
-    console.log(chalk.yellow('Warning: No context found. Run `bq-write init` in your project directory for better results.\n'));
-  } else {
-    const tokens = Math.ceil(codeContext.length / 4);
-    console.log(chalk.dim(`Loaded context (${tokens.toLocaleString()} tokens)\n`));
-  }
 
   const agentOptions: AgentOptions = {
     apiKey: config.anthropicApiKey,
     datasetRef,
     maxResults: config.bqMaxResults,
-    systemPrompt: buildSystemPrompt(datasetRef, codeContext),
+    systemPrompt: buildSystemPrompt(datasetRef, repoDir),
+    repoDir,
   };
 
   return { datasetRef, agentOptions, conversationHistory: [] };
@@ -69,7 +61,6 @@ export async function askQuestion(pipeline: Pipeline, question: string): Promise
     console.log(chalk.green('\n' + result.finalText));
   }
 
-  // The agent loop already appended messages; avoid double-push
   const last = pipeline.conversationHistory[pipeline.conversationHistory.length - 1];
   if (last?.role !== 'assistant') {
     pipeline.conversationHistory.push({ role: 'assistant', content: result.finalText });

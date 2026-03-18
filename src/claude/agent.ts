@@ -1,4 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as readline from 'readline';
 import chalk from 'chalk';
 import { getAnthropicClient, MODEL } from './client';
@@ -12,6 +14,7 @@ export interface AgentOptions {
   datasetRef: DatasetRef;
   maxResults: number;
   systemPrompt: string;
+  repoDir: string;
 }
 
 export interface AgentResult {
@@ -19,7 +22,15 @@ export interface AgentResult {
   queryResult?: QueryResult;
 }
 
-const MAX_ITERATIONS = 10;
+const MAX_ITERATIONS = 15;
+
+function resolveSafe(repoDir: string, relativePath: string): string {
+  const resolved = path.resolve(repoDir, relativePath);
+  if (!resolved.startsWith(path.resolve(repoDir))) {
+    throw new Error(`Access denied: "${relativePath}" is outside the project directory.`);
+  }
+  return resolved;
+}
 
 export async function runAgentTurn(
   messages: Anthropic.MessageParam[],
@@ -42,24 +53,19 @@ export async function runAgentTurn(
       messages: localMessages,
     });
 
-    // Collect text content from this response
     const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text');
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
     );
 
-    // Add assistant message to conversation
     localMessages.push({ role: 'assistant', content: response.content });
 
-    // If no tool calls, we're done
     if (response.stop_reason === 'end_turn' || toolUseBlocks.length === 0) {
       const finalText = textBlocks.map((b) => b.text).join('\n');
-      // Update caller's messages array
       messages.push(...localMessages.slice(messages.length));
       return { finalText, queryResult: lastQueryResult };
     }
 
-    // Process tool calls
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const toolUse of toolUseBlocks) {
@@ -68,8 +74,35 @@ export async function runAgentTurn(
 
       try {
         switch (toolUse.name) {
+          case 'list_directory': {
+            const relPath = (input['path'] as string) || '.';
+            const absPath = resolveSafe(options.repoDir, relPath);
+            console.log(chalk.dim(`  → ls ${relPath}`));
+            const entries = fs.readdirSync(absPath, { withFileTypes: true });
+            const listing = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+            resultContent = listing.join('\n');
+            break;
+          }
+
+          case 'read_file': {
+            const relPath = input['path'] as string;
+            const absPath = resolveSafe(options.repoDir, relPath);
+            console.log(chalk.dim(`  → read ${relPath}`));
+            if (!fs.existsSync(absPath)) {
+              resultContent = `File not found: ${relPath}`;
+              break;
+            }
+            const stat = fs.statSync(absPath);
+            if (stat.size > 200_000) {
+              resultContent = `File too large to read (${Math.round(stat.size / 1024)}KB). Try a more specific file.`;
+              break;
+            }
+            resultContent = fs.readFileSync(absPath, 'utf-8');
+            break;
+          }
+
           case 'list_tables': {
-            console.log(chalk.dim('  → Listing tables...'));
+            console.log(chalk.dim('  → Listing BQ tables...'));
             const tables = await listTables(options.datasetRef);
             resultContent = JSON.stringify(tables, null, 2);
             break;
@@ -77,7 +110,7 @@ export async function runAgentTurn(
 
           case 'get_table_schema': {
             const tableId = input['table_id'] as string;
-            console.log(chalk.dim(`  → Fetching schema for ${tableId}...`));
+            console.log(chalk.dim(`  → BQ schema: ${tableId}`));
             const schema = await getTableSchema(options.datasetRef, tableId);
             resultContent = JSON.stringify(schema, null, 2);
             break;
@@ -85,28 +118,24 @@ export async function runAgentTurn(
 
           case 'run_query': {
             const sql = input['sql'] as string;
-            console.log(chalk.dim('  → Executing query...'));
-            console.log(chalk.dim(`  SQL: ${sql.split('\n')[0].trim()}...`));
+            console.log(chalk.dim('  → Running query...'));
+            console.log(chalk.dim(`     ${sql.split('\n')[0].trim()}`));
             const result = await runQuery(options.datasetRef, sql, options.maxResults);
             lastQueryResult = result;
             displayQueryResult(result);
-            resultContent = JSON.stringify(
-              {
-                totalRows: result.totalRows,
-                bytesProcessed: result.bytesProcessed,
-                schema: result.schema,
-                rows: result.rows.slice(0, 5), // only send first 5 rows back to Claude
-              },
-              null,
-              2
-            );
+            resultContent = JSON.stringify({
+              totalRows: result.totalRows,
+              bytesProcessed: result.bytesProcessed,
+              schema: result.schema,
+              rows: result.rows.slice(0, 5),
+            }, null, 2);
             break;
           }
 
           case 'ask_clarification': {
             const question = input['question'] as string;
-            console.log(chalk.yellow(`\nClarification needed: ${question}`));
-            const answer = await promptUser('Your answer: ');
+            console.log(chalk.yellow(`\n${question}`));
+            const answer = await promptUser('> ');
             resultContent = answer;
             break;
           }
@@ -116,7 +145,7 @@ export async function runAgentTurn(
         }
       } catch (err) {
         resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
-        console.error(chalk.red(`  Tool error (${toolUse.name}): ${resultContent}`));
+        console.error(chalk.red(`  [${toolUse.name}] ${resultContent}`));
       }
 
       toolResults.push({
@@ -129,7 +158,6 @@ export async function runAgentTurn(
     localMessages.push({ role: 'user', content: toolResults });
   }
 
-  // Safety breaker
   messages.push(...localMessages.slice(messages.length));
   return {
     finalText: 'Maximum iterations reached. Please try a more specific question.',
@@ -138,11 +166,7 @@ export async function runAgentTurn(
 }
 
 function promptUser(prompt: string): Promise<string> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: false,
-  });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => {
       rl.close();

@@ -5,28 +5,26 @@ Ask questions about your data in plain English. `bq-write` reads your app's sour
 ```
 bq> How many active users signed up in the last 7 days?
 
+  → ls app/models
+  → read app/models/user.rb
+  → Listing BQ tables...
+  → Running query...
+
   ┌──────────────┬───────┐
   │ signup_date  │ count │
   ├──────────────┼───────┤
   │ 2026-03-11   │ 312   │
   │ 2026-03-12   │ 289   │
-  │ ...          │ ...   │
   └──────────────┴───────┘
 
-  7 rows · 0.83 MB processed
-
-Found 2,041 new active users over the last 7 days, peaking on Tuesday.
+  2,041 new active users over the last 7 days.
 ```
 
 ---
 
 ## How it works
 
-1. **`bq-write init`** — scans your local repo for ORM models, migrations, and schema files, then caches them as context
-2. **`bq-write query`** — loads that context into Claude's system prompt, then lets you ask questions in a REPL or one-shot mode
-3. Claude calls BigQuery tools iteratively (`list_tables` → `run_query`) to ground its SQL in the real live schema
-
-No schema hallucination. No `SELECT *`. No guessing what `status = 'ACT'` means.
+Claude is given `list_directory` and `read_file` tools scoped to your project directory. When you ask a question, it explores your source code to find the relevant model or migration files, reads only what it needs, then calls BigQuery to run the query — no pre-indexing, no embeddings, no setup.
 
 ---
 
@@ -39,7 +37,7 @@ npm install -g bq-write
 **Requirements:**
 - Node.js 18+
 - An [Anthropic API key](https://console.anthropic.com/)
-- Google Cloud credentials (see [BigQuery auth](#bigquery-auth))
+- Google Cloud credentials ([see below](#bigquery-auth))
 
 ---
 
@@ -61,40 +59,31 @@ Then reload: `source ~/.zshrc`
 gcloud auth application-default login
 ```
 
-This sets up Application Default Credentials — no extra config needed.
-
-### 3. Index your repo
-
-Run once inside your application's repository:
-
-```bash
-cd ~/my-app
-bq-write init
-```
-
-This scans for schema-relevant files (models, migrations, SQL, GraphQL, etc.) and caches them to `.bq-write/context.md`. Re-run whenever your schema changes significantly.
-
 ---
 
 ## Usage
 
-### Interactive REPL
+### Run from inside your project
 
 ```bash
+cd ~/my-app
 bq-write query --dataset "my-project.my_dataset"
 ```
 
 ```
-Context: 14 files, ~21,000 tokens (indexed 2h ago)
-
+Project: /Users/you/my-app
 Ask questions in plain English. Type `exit` to quit.
 
-bq> Which products have the most abandoned carts this week?
-bq> Break that down by user country
+bq> How many active users signed up this month?
+bq> Break that down by country
 bq> exit
 ```
 
-Conversation history is kept across turns — you can ask follow-up questions naturally.
+### Run from anywhere with `--dir`
+
+```bash
+bq-write query --dataset "my-project.my_dataset" --dir ~/my-app
+```
 
 ### One-shot
 
@@ -104,40 +93,17 @@ bq-write query \
   --question "How many orders were refunded last month?"
 ```
 
-### Options
-
-```
-bq-write init [options]
-  --dir <dir>       Project directory to scan (default: current directory)
-
-bq-write query [options]
-  -d, --dataset     BigQuery dataset — required (format: project.dataset)
-  -q, --question    Question to ask (omit for REPL mode)
-  --dir <dir>       Directory with .bq-write cache (default: current directory)
-```
-
-If your app repo and working directory differ:
-
-```bash
-bq-write init --dir ~/my-app
-bq-write query --dataset "my-project.my_dataset" --dir ~/my-app
-```
-
 ---
 
-## What gets indexed
+## Options
 
-`bq-write init` scans for files in priority order, within a token budget (default 80K):
+```
+bq-write query [options]
 
-| Priority | Files |
-|---|---|
-| 1 — Highest | `models.py`, `schema.prisma`, `schema.rb`, ORM model files |
-| 2 | Migrations, TypeORM entities |
-| 3 | `.sql` DDL files, Alembic versions |
-| 4 | GraphQL schemas, OpenAPI/Swagger specs |
-| 5 — Fallback | `README.md` |
-
-Binary files, `node_modules`, `dist`, lock files are always skipped.
+  -d, --dataset <dataset>    BigQuery dataset — required (format: project.dataset)
+  --dir <dir>                Project source directory (default: current directory)
+  -q, --question <question>  Ask a single question and exit (omit for REPL)
+```
 
 ---
 
@@ -147,16 +113,7 @@ Binary files, `node_modules`, `dist`, lock files are always skipped.
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | Yes | — | Your Anthropic API key |
 | `BQ_MAX_RESULTS` | No | `100` | Max rows returned per query |
-| `CONTEXT_MAX_TOKENS` | No | `80000` | Token budget for indexed context |
-
----
-
-## Tips
-
-- **Re-index after schema changes:** `bq-write init` only needs to re-run when your models or migrations change meaningfully
-- **Add `.bq-write/` to `.gitignore`** if you don't want to commit the cached context
-- **Large repos:** increase `CONTEXT_MAX_TOKENS` if important model files are being cut off
-- **Multi-repo setups:** use `--dir` to point at the app repo while running queries from anywhere
+| `CONTEXT_MAX_TOKENS` | No | `80000` | Token budget for file reads per turn |
 
 ---
 
