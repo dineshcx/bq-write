@@ -1,30 +1,36 @@
 # bq-write
 
-Ask questions about your data in plain English. `bq-write` reads your app's source code to understand your schema — column meanings, status codes, table relationships — then generates accurate BigQuery SQL and runs it.
+Ask questions about your data in plain English. `bq-write` reads your app's source code to understand your schema — entity names, column types, enum values, table relationships — then generates accurate BigQuery SQL and runs it.
 
 ```
-bq> How many active users signed up in the last 7 days?
+bq> how many users completed a conversation in project 661?
 
-  → ls app/models
-  → read app/models/user.rb
-  → Listing BQ tables...
-  → Running query...
+  → read src/app/conversations/conversation.entity.ts
+  → read src/app/conversations/enums/conversation-status.enum.ts
 
-  ┌──────────────┬───────┐
-  │ signup_date  │ count │
-  ├──────────────┼───────┤
-  │ 2026-03-11   │ 312   │
-  │ 2026-03-12   │ 289   │
-  └──────────────┴───────┘
+SELECT COUNT(*) AS total
+FROM my-project.my_dataset.conversation
+WHERE project_id = 661
+  AND status = 'completed'
 
-  2,041 new active users over the last 7 days.
+→ Query done — 1 row(s)
+
+  ┌───────┐
+  │ total │
+  ├───────┤
+  │ 4     │
+  └───────┘
+
+There are 4 completed conversations in project 661.
 ```
 
 ---
 
 ## How it works
 
-An AI agent is given `list_directory` and `read_file` tools scoped to your project directory. When you ask a question, it reads the relevant entity and enum files, then calls BigQuery to run the query — no pre-indexing, no embeddings, no setup.
+An AI agent reads your entity and enum files to understand the domain — column names, status values, relationships — then writes and executes BigQuery SQL directly. No hallucinated column names, no wrong enum values.
+
+Supports **Anthropic** (Opus, Sonnet, Haiku) and **OpenAI** (GPT-4o, GPT-4o Mini) — works with whichever API key you have.
 
 ---
 
@@ -36,22 +42,25 @@ npm install -g bq-write
 
 **Requirements:**
 - Node.js 18+
-- An [Anthropic API key](https://console.anthropic.com/)
-- Google Cloud credentials ([see below](#bigquery-auth))
+- Anthropic API key and/or OpenAI API key
+- Google Cloud credentials (see [BigQuery auth](#bigquery-auth))
 
 ---
 
 ## Setup
 
-### 1. Set your API key
+### 1. API keys
 
-Add to `~/.zshrc` or `~/.bashrc`:
+Run once after installation — `bq-write` will prompt automatically on first run too:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+bq-write setup
+# ? Anthropic API key › sk-ant-...
+# ? OpenAI API key (optional) › sk-...
+# ✔ Saved to ~/.config/bq-write/config.json
 ```
 
-Then reload: `source ~/.zshrc`
+You only need one key. Keys are stored in `~/.config/bq-write/config.json` and never need to be set again.
 
 ### 2. BigQuery auth
 
@@ -59,61 +68,88 @@ Then reload: `source ~/.zshrc`
 gcloud auth application-default login
 ```
 
+Don't have `gcloud`?
+```bash
+brew install google-cloud-sdk   # macOS
+```
+
 ---
 
 ## Usage
 
-### Run from inside your project
+Run from inside your project directory:
 
 ```bash
 cd ~/my-app
-bq-write query --dataset "my-project.my_dataset"
+bq-write
 ```
 
-```
-Project: /Users/you/my-app
-Ask questions in plain English. Type `exit` to quit.
+On first run it will:
+1. Auto-redirect to setup if no API keys are configured
+2. Detect monorepos and ask which app to scope to
+3. Index entity/model files from your project
+4. Ask which model and dataset to use
 
-bq> How many active users signed up this month?
-bq> Break that down by country
+Then you're in the REPL:
+
+```
+Model   : GPT-4o  (OpenAI)
+Dataset : my-project.my_dataset
+Project : /Users/you/my-app
+
+bq> how many users signed up this month?
+bq> break that down by country
 bq> exit
 ```
 
-### Run from anywhere with `--dir`
+### REPL commands
 
-```bash
-bq-write query --dataset "my-project.my_dataset" --dir ~/my-app
+| Command | Description |
+|---|---|
+| `/setup` | Update API keys |
+| `/switch` | Change model or dataset |
+| `/reindex` | Re-scan project files |
+| `/help` | Show all commands |
+| `exit` | Quit |
+
+### Monorepo support
+
+If your project has an `apps/` or `packages/` directory, `bq-write` detects it and asks which app maps to your dataset:
+
+```
+? Monorepo detected — which app maps to this dataset?
+❯ apps/api
+  apps/worker
+  apps/admin
+    Entire repo
 ```
 
-### One-shot
-
-```bash
-bq-write query \
-  --dataset "my-project.my_dataset" \
-  --question "How many orders were refunded last month?"
-```
+The selection is remembered. Run `bq-write reindex` after changing it.
 
 ---
 
-## Options
+## BigQuery auth
 
-```
-bq-write query [options]
+`bq-write` uses Google Application Default Credentials. Run once:
 
-  -d, --dataset <dataset>    BigQuery dataset — required (format: project.dataset)
-  --dir <dir>                Project source directory (default: current directory)
-  -q, --question <question>  Ask a single question and exit (omit for REPL)
+```bash
+gcloud auth application-default login
 ```
+
+Your Google account needs **BigQuery Data Viewer** and **BigQuery Job User** roles on the project.
 
 ---
 
 ## Environment variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | — | Your Anthropic API key |
-| `BQ_MAX_RESULTS` | No | `100` | Max rows returned per query |
-| `CONTEXT_MAX_TOKENS` | No | `80000` | Token budget for file reads per turn |
+Optional overrides — prefer `bq-write setup` for API keys.
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Overrides saved Anthropic key |
+| `OPENAI_API_KEY` | — | Overrides saved OpenAI key |
+| `BQ_MAX_RESULTS` | `100` | Max rows returned per query |
+| `CONTEXT_MAX_TOKENS` | `80000` | Token budget for file reads per turn |
 
 ---
 
