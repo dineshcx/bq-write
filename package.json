@@ -1,6 +1,6 @@
 {
   "name": "bq-write",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "BigQuery Natural Language Query CLI",
   "main": "dist/index.js",
   "bin": {
