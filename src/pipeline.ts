@@ -1,49 +1,59 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { LLMMessage } from './llm/types';
+import { LLMProvider } from './llm/types';
 import chalk from 'chalk';
-import { Config } from './config';
 import { parseDatasetRef, DatasetRef } from './bigquery/client';
 import { runAgentTurn, AgentOptions } from './claude/agent';
+import { FileIndex, formatIndexForPrompt } from './local/indexer';
+import { Config } from './config';
 
-function buildSystemPrompt(ref: DatasetRef, repoDir: string): string {
+function buildSystemPrompt(ref: DatasetRef, repoDir: string, fileIndex: FileIndex | null): string {
   const fqPrefix = `${ref.projectId}.${ref.datasetId}`;
-  return `You are a BigQuery SQL expert. Your job is to translate natural-language questions into accurate BigQuery SQL queries and execute them.
+
+  const fileMapSection = fileIndex
+    ? `## Schema files in this project\nThe following files were found in \`${repoDir}\`. Use \`read_file\` to read the ones relevant to the question — no need to explore with \`list_directory\`.\n\n${formatIndexForPrompt(fileIndex)}`
+    : `## Project directory\nSource code is at \`${repoDir}\`. Use \`list_directory\` to explore and \`read_file\` to read relevant files.`;
+
+  return `You are a BigQuery SQL expert. Translate natural-language questions into accurate BigQuery SQL and execute them.
 
 ## Dataset
 Target dataset: \`${fqPrefix}\`
 
-## Project directory
-The user's application source code is at: \`${repoDir}\`
-You have access to \`list_directory\` and \`read_file\` tools to explore it.
+${fileMapSection}
 
 ## Workflow
-1. Use \`list_directory\` and \`read_file\` to find and read the files relevant to the question — model definitions, migrations, schema files, etc. Only read what is needed.
-2. Call \`list_tables\` to see the live BigQuery schema.
-3. Use what you learned from the source code to understand column semantics, enum values, and relationships. Use the live BQ schema for actual column names and types.
-4. Write and execute SQL with \`run_query\`.
-5. Summarize the results in plain English.
+1. Read the source files relevant to the question to understand column semantics, enum values, and relationships.
+2. Call \`list_tables\` to confirm the live BigQuery schema.
+3. Write and execute SQL with \`run_query\`.
+4. Summarize the results in plain English.
 
 ## SQL rules
 - Always use fully-qualified table references: \`${fqPrefix}.table_name\`
 - Never use \`SELECT *\`. Name columns explicitly.
 - Add \`LIMIT 1000\` for exploratory queries unless the user asks for all rows.
-- If a question is ambiguous, use \`ask_clarification\` before writing SQL.
+- If the question is ambiguous, use \`ask_clarification\` first.
 `;
 }
 
 export interface Pipeline {
   datasetRef: DatasetRef;
   agentOptions: AgentOptions;
-  conversationHistory: Anthropic.MessageParam[];
+  conversationHistory: LLMMessage[];
 }
 
-export function initPipeline(dataset: string, repoDir: string, config: Config): Pipeline {
+export function initPipeline(
+  dataset: string,
+  repoDir: string,
+  config: Config,
+  fileIndex: FileIndex | null,
+  provider: LLMProvider
+): Pipeline {
   const datasetRef = parseDatasetRef(dataset);
 
   const agentOptions: AgentOptions = {
-    apiKey: config.anthropicApiKey,
+    provider,
     datasetRef,
     maxResults: config.bqMaxResults,
-    systemPrompt: buildSystemPrompt(datasetRef, repoDir),
+    systemPrompt: buildSystemPrompt(datasetRef, repoDir, fileIndex),
     repoDir,
   };
 
@@ -52,7 +62,6 @@ export function initPipeline(dataset: string, repoDir: string, config: Config): 
 
 export async function askQuestion(pipeline: Pipeline, question: string): Promise<string> {
   pipeline.conversationHistory.push({ role: 'user', content: question });
-
   console.log(chalk.dim('Thinking...\n'));
 
   const result = await runAgentTurn(pipeline.conversationHistory, pipeline.agentOptions);
