@@ -2,6 +2,8 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { DbAppDataset } from "@/lib/supabase";
 import type { Message } from "@/lib/agent/runner";
 
@@ -203,7 +205,7 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
                     </div>
                   ) : (
                     <div className="rounded-2xl rounded-bl-sm bg-zinc-900 border border-zinc-800 px-4 py-3">
-                      <p className="text-sm text-zinc-200 whitespace-pre-wrap">{msg.text}</p>
+                      <MarkdownMessage text={msg.text} />
                     </div>
                   )}
                   {msg.queries && msg.queries.length > 0 && (
@@ -266,6 +268,63 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function MarkdownMessage({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        // Headings
+        h1: ({ children }) => <h1 className="text-base font-semibold text-zinc-100 mt-3 mb-1 first:mt-0">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-sm font-semibold text-zinc-100 mt-3 mb-1 first:mt-0">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-sm font-semibold text-zinc-200 mt-2 mb-1 first:mt-0">{children}</h3>,
+        // Paragraph
+        p: ({ children }) => <p className="text-sm text-zinc-200 leading-relaxed mb-2 last:mb-0">{children}</p>,
+        // Bold / italic
+        strong: ({ children }) => <strong className="font-semibold text-zinc-100">{children}</strong>,
+        em: ({ children }) => <em className="italic text-zinc-300">{children}</em>,
+        // Inline code
+        code: ({ children, className }) => {
+          const isBlock = !!className;
+          if (isBlock) {
+            return (
+              <code className="block bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs font-mono text-zinc-300 overflow-x-auto my-2 whitespace-pre">
+                {children}
+              </code>
+            );
+          }
+          return <code className="bg-zinc-800 text-zinc-300 rounded px-1 py-0.5 text-xs font-mono">{children}</code>;
+        },
+        pre: ({ children }) => <>{children}</>,
+        // Horizontal rule
+        hr: () => <hr className="border-zinc-700 my-3" />,
+        // Lists
+        ul: ({ children }) => <ul className="list-disc list-inside text-sm text-zinc-300 space-y-0.5 mb-2 last:mb-0 pl-2">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal list-inside text-sm text-zinc-300 space-y-0.5 mb-2 last:mb-0 pl-2">{children}</ol>,
+        li: ({ children }) => <li className="text-zinc-300">{children}</li>,
+        // Table
+        table: ({ children }) => (
+          <div className="overflow-x-auto my-3 rounded-lg border border-zinc-700">
+            <table className="w-full text-sm border-collapse">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => <thead className="bg-zinc-800">{children}</thead>,
+        tbody: ({ children }) => <tbody className="divide-y divide-zinc-700/50">{children}</tbody>,
+        tr: ({ children }) => <tr className="hover:bg-zinc-800/40 transition-colors">{children}</tr>,
+        th: ({ children }) => (
+          <th className="text-left px-4 py-2.5 text-xs font-semibold text-zinc-400 uppercase tracking-wider whitespace-nowrap">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td className="px-4 py-2.5 text-zinc-300 text-sm">{children}</td>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
   );
 }
 
