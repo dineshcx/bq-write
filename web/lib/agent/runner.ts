@@ -28,17 +28,28 @@ export interface ContentBlock {
   content?: string;
 }
 
+export type ProgressEvent =
+  | { type: "thinking" }
+  | { type: "reading_file"; path: string }
+  | { type: "listing_files" }
+  | { type: "listing_tables" }
+  | { type: "getting_schema"; table: string }
+  | { type: "running_query"; sql: string }
+  | { type: "query_done"; rows: number };
+
 export interface AgentRunOptions {
   appId: string;
   datasetRef: DatasetRef;
-  accessToken: string;       // Google OAuth token for BigQuery
+  accessToken: string;
   systemPrompt: string;
+  onProgress?: (event: ProgressEvent) => void;
 }
 
 export interface AgentRunResult {
   finalText: string;
-  clarification?: string;    // set if agent asked for clarification
+  clarification?: string;
   queryResult?: QueryResult;
+  queries: string[];
 }
 
 const MAX_ITERATIONS = 15;
@@ -162,7 +173,11 @@ export async function runAgentTurn(
 
   let lastQueryResult: QueryResult | undefined;
 
+  const emit = options.onProgress ?? (() => {});
+  const executedQueries: string[] = [];
+
   for (let i = 0; i < MAX_ITERATIONS; i++) {
+    emit({ type: "thinking" });
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
@@ -183,9 +198,8 @@ export async function runAgentTurn(
     ) as Anthropic.ToolUseBlock[];
 
     if (response.stop_reason === "end_turn" || toolUses.length === 0) {
-      // Sync back to caller messages
       messages.push(...(localMessages.slice(messages.length) as Message[]));
-      return { finalText: textBlock?.text ?? "", queryResult: lastQueryResult };
+      return { finalText: textBlock?.text ?? "", queryResult: lastQueryResult, queries: executedQueries };
     }
 
     // Dispatch tool calls
@@ -198,17 +212,20 @@ export async function runAgentTurn(
         switch (tool.name) {
           case "list_directory": {
             const p = (tool.input as { path: string }).path || ".";
+            emit({ type: "listing_files" });
             resultContent = await listAppFiles(options.appId, p);
             break;
           }
 
           case "read_file": {
             const p = (tool.input as { path: string }).path;
+            emit({ type: "reading_file", path: p });
             resultContent = await readAppFile(options.appId, p);
             break;
           }
 
           case "list_tables": {
+            emit({ type: "listing_tables" });
             const tables = await listTables(options.datasetRef, options.accessToken);
             resultContent = JSON.stringify(tables, null, 2);
             break;
@@ -216,6 +233,7 @@ export async function runAgentTurn(
 
           case "get_table_schema": {
             const tableId = (tool.input as { table_id: string }).table_id;
+            emit({ type: "getting_schema", table: tableId });
             const schema = await getTableSchema(options.datasetRef, tableId, options.accessToken);
             resultContent = JSON.stringify(schema, null, 2);
             break;
@@ -223,10 +241,13 @@ export async function runAgentTurn(
 
           case "run_query": {
             const sql = (tool.input as { sql: string }).sql;
+            executedQueries.push(sql);
+            emit({ type: "running_query", sql });
             console.log("[agent] run_query →", options.datasetRef.projectId, options.datasetRef.datasetId);
             console.log("[agent] SQL:\n" + sql);
             const result = await runQuery(options.datasetRef, sql, options.accessToken);
             lastQueryResult = result;
+            emit({ type: "query_done", rows: result.totalRows });
             resultContent = JSON.stringify(
               {
                 totalRows: result.totalRows,
@@ -242,9 +263,8 @@ export async function runAgentTurn(
 
           case "ask_clarification": {
             const question = (tool.input as { question: string }).question;
-            // Return the question to the caller — UI will handle it
             messages.push(...(localMessages.slice(messages.length) as Message[]));
-            return { finalText: "", clarification: question, queryResult: lastQueryResult };
+            return { finalText: "", clarification: question, queryResult: lastQueryResult, queries: executedQueries };
           }
 
           default:
@@ -265,6 +285,7 @@ export async function runAgentTurn(
   return {
     finalText: "Maximum iterations reached. Please try a more specific question.",
     queryResult: lastQueryResult,
+    queries: executedQueries,
   };
 }
 

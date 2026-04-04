@@ -67,31 +67,27 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, account, profile }) {
-      // Initial sign-in
-      if (account) {
+      // Initial sign-in — store tokens and fetch role from Supabase
+      if (account && profile) {
         console.log(
           "[auth] Sign-in — access_token:", !!account.access_token,
           "| refresh_token:", !!account.refresh_token,
           "| expires_at:", account.expires_at
         );
-        return {
-          ...token,
-          accessToken: account.access_token!,
-          refreshToken: account.refresh_token,
-          accessTokenExpires: account.expires_at
-            ? account.expires_at * 1000
-            : Date.now() + 3600 * 1000,
-          error: undefined,
-        };
-      }
 
-      // Upsert user in Supabase on sign-in (profile is only present on sign-in)
-      if (profile?.email && !token.role) {
+        token.accessToken = account.access_token!;
+        token.refreshToken = account.refresh_token;
+        token.accessTokenExpires = account.expires_at
+          ? account.expires_at * 1000
+          : Date.now() + 3600 * 1000;
+        token.error = undefined;
+
+        // Upsert user and fetch their role
         const { data } = await supabase
           .from("users")
           .upsert(
             {
-              email: profile.email,
+              email: profile.email!,
               name: (profile as { name?: string }).name ?? null,
               google_id: profile.sub,
               last_login_at: new Date().toISOString(),
@@ -102,6 +98,8 @@ export const authOptions: NextAuthOptions = {
           .single();
 
         token.role = (data?.role ?? "member") as UserRole;
+        console.log("[auth] Role fetched:", token.role);
+        return token;
       }
 
       // Already failed to refresh — don't retry on every request
