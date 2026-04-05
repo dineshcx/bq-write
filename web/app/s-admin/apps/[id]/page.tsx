@@ -1,5 +1,5 @@
 "use client";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import type { DbAppDataset, DbAppFile } from "@/lib/supabase";
@@ -52,13 +52,21 @@ export default function AdminAppDetailPage({ params }: { params: { id: string } 
     <div className="min-h-screen">
       <header className="border-b border-zinc-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-sm">bq-write</span>
+          <Link href="/apps" className="font-semibold text-sm hover:text-zinc-300 transition-colors">bq-write</Link>
           <span className="text-zinc-600">/</span>
           <Link href="/s-admin/apps" className="text-zinc-400 text-sm hover:text-zinc-200">Apps</Link>
           <span className="text-zinc-600">/</span>
           <span className="text-zinc-300 text-sm">{app.name}</span>
         </div>
-        <span className="text-zinc-400 text-sm">{session.user?.email}</span>
+        <div className="flex items-center gap-4">
+          <span className="text-zinc-400 text-sm">{session.user?.email}</span>
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className="px-6 py-8 max-w-4xl mx-auto">

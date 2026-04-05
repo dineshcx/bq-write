@@ -1,5 +1,5 @@
 "use client";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
@@ -226,6 +226,12 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
             Memory
           </button>
           <span className="text-zinc-500 text-sm">{session.user?.email}</span>
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
+          >
+            Sign out
+          </button>
         </div>
       </header>
 

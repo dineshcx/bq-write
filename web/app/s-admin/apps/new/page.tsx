@@ -39,14 +39,16 @@ export default function NewAppPage() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-zinc-800 px-6 py-3 flex items-center gap-3">
-        <span className="font-semibold text-sm">bq-write</span>
-        <span className="text-zinc-600">/</span>
-        <Link href="/s-admin" className="text-zinc-400 text-sm hover:text-zinc-200">Admin</Link>
-        <span className="text-zinc-600">/</span>
-        <Link href="/s-admin/apps" className="text-zinc-400 text-sm hover:text-zinc-200">Apps</Link>
-        <span className="text-zinc-600">/</span>
-        <span className="text-zinc-400 text-sm">New</span>
+      <header className="border-b border-zinc-800 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/apps" className="font-semibold text-sm hover:text-zinc-300 transition-colors">bq-write</Link>
+          <span className="text-zinc-600">/</span>
+          <Link href="/s-admin" className="text-zinc-400 text-sm hover:text-zinc-200">Admin</Link>
+          <span className="text-zinc-600">/</span>
+          <Link href="/s-admin/apps" className="text-zinc-400 text-sm hover:text-zinc-200">Apps</Link>
+          <span className="text-zinc-600">/</span>
+          <span className="text-zinc-400 text-sm">New</span>
+        </div>
       </header>
 
       <main className="px-6 py-8 max-w-lg mx-auto">

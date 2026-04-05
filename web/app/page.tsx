@@ -1,11 +1,19 @@
 "use client";
-import { useSession, signIn, signOut } from "next-auth/react";
-import { useState } from "react";
+import { useSession, signIn } from "next-auth/react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
   const { data: session, status } = useSession();
+  const router = useRouter();
 
-  if (status === "loading") {
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.replace("/apps");
+    }
+  }, [status, router]);
+
+  if (status === "loading" || status === "authenticated") {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <span className="text-zinc-500 text-sm">Loading...</span>
@@ -13,8 +21,7 @@ export default function Home() {
     );
   }
 
-  if (!session) return <LoginView />;
-  return <TestView email={session.user?.email ?? ""} />;
+  return <LoginView />;
 }
 
 function LoginView() {
@@ -33,122 +40,6 @@ function LoginView() {
           Sign in with Google
         </button>
       </div>
-    </div>
-  );
-}
-
-function TestView({ email }: { email: string }) {
-  const [projectId, setProjectId] = useState("");
-  const [query, setQuery] = useState("SELECT 1 AS connected");
-  const [result, setResult] = useState<{ rows?: Record<string, unknown>[]; error?: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function runTest() {
-    setLoading(true);
-    setResult(null);
-    try {
-      const res = await fetch("/api/bq-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, query }),
-      });
-      const data = await res.json();
-      setResult(data);
-    } catch (err) {
-      setResult({ error: err instanceof Error ? err.message : "Request failed" });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="border-b border-zinc-800 px-6 py-3 flex items-center justify-between">
-        <span className="font-semibold text-sm">bq-write</span>
-        <div className="flex items-center gap-4">
-          <span className="text-zinc-400 text-sm">{email}</span>
-          <button
-            onClick={() => signOut()}
-            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-
-      {/* Main */}
-      <main className="flex-1 flex items-start justify-center pt-20 px-6">
-        <div className="w-full max-w-lg space-y-6">
-          <div className="space-y-1">
-            <h2 className="font-semibold">Test BigQuery access</h2>
-            <p className="text-zinc-400 text-sm">
-              Verify your Google account can reach BigQuery before setup.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-zinc-400 uppercase tracking-wider">
-                GCP Project ID
-              </label>
-              <input
-                type="text"
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                placeholder="my-gcp-project"
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs text-zinc-400 uppercase tracking-wider">
-                Test query
-              </label>
-              <textarea
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                rows={3}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm font-mono placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors resize-none"
-              />
-            </div>
-
-            <button
-              onClick={runTest}
-              disabled={!projectId || loading}
-              className="w-full bg-zinc-100 text-zinc-900 font-medium text-sm px-4 py-2.5 rounded-lg hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? "Running..." : "Run test"}
-            </button>
-          </div>
-
-          {result && (
-            <div
-              className={`rounded-lg border p-4 space-y-2 ${
-                result.error
-                  ? "border-red-900 bg-red-950/30"
-                  : "border-green-900 bg-green-950/30"
-              }`}
-            >
-              {result.error ? (
-                <>
-                  <p className="text-red-400 text-sm font-medium">Connection failed</p>
-                  <p className="text-red-300 text-sm font-mono break-all">{result.error}</p>
-                </>
-              ) : (
-                <>
-                  <p className="text-green-400 text-sm font-medium">
-                    Connected — {result.rows?.length ?? 0} row(s) returned
-                  </p>
-                  <pre className="text-zinc-300 text-xs font-mono overflow-auto max-h-48">
-                    {JSON.stringify(result.rows, null, 2)}
-                  </pre>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </main>
     </div>
   );
 }

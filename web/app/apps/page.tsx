@@ -1,5 +1,5 @@
 "use client";
-import { useSession, signIn } from "next-auth/react";
+import { useSession, signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DbApp } from "@/lib/supabase";
@@ -39,7 +39,23 @@ export default function AppsPage() {
     <div className="min-h-screen">
       <header className="border-b border-zinc-800 px-6 py-3 flex items-center justify-between">
         <span className="font-semibold text-sm">bq-write</span>
-        <span className="text-zinc-400 text-sm">{session.user?.email}</span>
+        <div className="flex items-center gap-4">
+          {["admin", "superadmin"].includes(session.role) && (
+            <Link
+              href={session.role === "superadmin" ? "/s-admin" : "/s-admin/apps"}
+              className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
+            >
+              Admin
+            </Link>
+          )}
+          <span className="text-zinc-400 text-sm">{session.user?.email}</span>
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className="px-6 py-8 max-w-3xl mx-auto">

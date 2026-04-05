@@ -1,5 +1,6 @@
 "use client";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { DbUser } from "@/lib/supabase";
 
@@ -38,12 +39,25 @@ export default function SuperAdminPage() {
     <div className="min-h-screen">
       <header className="border-b border-zinc-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-sm">bq-write</span>
+          <Link href="/apps" className="font-semibold text-sm hover:text-zinc-300 transition-colors">bq-write</Link>
           <span className="text-zinc-600 text-sm">/</span>
           <span className="text-zinc-400 text-sm">Users</span>
         </div>
-        <span className="text-zinc-400 text-sm">{session.user?.email}</span>
+        <div className="flex items-center gap-4">
+          <span className="text-zinc-400 text-sm">{session.user?.email}</span>
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
       </header>
+
+      <nav className="border-b border-zinc-800 px-6 flex gap-1">
+        <Link href="/s-admin/apps" className="px-3 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Apps</Link>
+        <span className="px-3 py-2.5 text-sm text-zinc-200 border-b-2 border-zinc-200">Users</span>
+      </nav>
 
       <main className="px-6 py-8 max-w-5xl mx-auto">
         <div className="mb-6">
