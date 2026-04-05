@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { NextRequest } from "next/server";
-import { runAgentTurn, buildSystemPrompt, type Message, type ProgressEvent } from "@/lib/agent/runner";
+import { runAgentTurn, buildSystemPrompt, readAppMemory, type Message, type ProgressEvent } from "@/lib/agent/runner";
 
 function sseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -87,7 +87,8 @@ export async function POST(
     datasetId: dataset.dataset_id,
   };
 
-  const systemPrompt = buildSystemPrompt(datasetRef, files ?? []);
+  const memory = await readAppMemory(params.id);
+  const systemPrompt = buildSystemPrompt(datasetRef, files ?? [], memory);
   const messages: Message[] = [...(history ?? []), { role: "user", content: question }];
 
   const stream = new ReadableStream({

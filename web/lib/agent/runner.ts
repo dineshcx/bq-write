@@ -30,12 +30,14 @@ export interface ContentBlock {
 
 export type ProgressEvent =
   | { type: "thinking" }
+  | { type: "thought"; text: string }
   | { type: "reading_file"; path: string }
   | { type: "listing_files" }
   | { type: "listing_tables" }
   | { type: "getting_schema"; table: string }
   | { type: "running_query"; sql: string }
-  | { type: "query_done"; rows: number };
+  | { type: "query_done"; rows: number }
+  | { type: "memory_updated" };
 
 // Ordered trace of every action the agent took
 export type AgentStep =
@@ -44,7 +46,8 @@ export type AgentStep =
   | { type: "listing_files" }
   | { type: "listing_tables" }
   | { type: "getting_schema"; table: string }
-  | { type: "query"; sql: string; rows?: number; error?: string };
+  | { type: "query"; sql: string; rows?: number; error?: string }
+  | { type: "memory_update" };
 
 export interface AgentRunOptions {
   appId: string;
@@ -128,7 +131,56 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["question"],
     },
   },
+  {
+    name: "update_memory",
+    description: `Update the shared memory for this app with facts you've learned about the database schema.
+This memory is shared across ALL datasets and users of this app, so keep it general and schema-focused.
+
+INCLUDE — non-obvious facts that help write correct SQL:
+- A column stores booleans as 0/1 instead of true/false
+- Enum columns with their exact string values (e.g. status: 'active' | 'offboarded')
+- JSON column structures and how to extract keys (e.g. JSON_VALUE syntax)
+- Non-obvious join paths between tables
+- Soft-delete patterns (e.g. deleted_at IS NOT NULL)
+
+DO NOT INCLUDE:
+- Workflow steps, SQL rules, naming conventions — those are already in the system prompt
+- Dataset-qualified table names (write \`contributor\` not \`project.dataset.contributor\`)
+- Point-in-time query results or row counts (these go stale)
+- Anything that duplicates what is obvious from the schema or entity files
+
+Format: short markdown sections per table, bullet points only. No prose, no instructions.`,
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        content: {
+          type: "string",
+          description: "Full updated memory content in markdown. Rewrite the entire file — merge existing facts with new ones. Schema facts only, no instructions.",
+        },
+      },
+      required: ["content"],
+    },
+  },
 ];
+
+const MEMORY_BUCKET = "entity-files";
+const memoryPath = (appId: string) => `${appId}/__memory__.md`;
+
+export async function readAppMemory(appId: string): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from(MEMORY_BUCKET)
+    .download(memoryPath(appId));
+  if (error || !data) return null;
+  return await data.text();
+}
+
+async function writeAppMemory(appId: string, content: string): Promise<void> {
+  await supabase.storage
+    .from(MEMORY_BUCKET)
+    .upload(memoryPath(appId), new Blob([content], { type: "text/markdown" }), {
+      upsert: true,
+    });
+}
 
 async function listAppFiles(appId: string, pathPrefix: string): Promise<string> {
   const { data } = await supabase
@@ -208,8 +260,9 @@ export async function runAgentTurn(
       (b) => b.type === "tool_use"
     ) as Anthropic.ToolUseBlock[];
 
-    // Capture intermediate reasoning text (thought before tool calls)
+    // Emit + record intermediate reasoning text (thought before tool calls)
     if (textBlock?.text && toolUses.length > 0) {
+      emit({ type: "thought", text: textBlock.text });
       steps.push({ type: "thought", text: textBlock.text });
     }
 
@@ -288,6 +341,15 @@ export async function runAgentTurn(
             return { finalText: "", clarification: question, queryResult: lastQueryResult, queries: executedQueries, steps };
           }
 
+          case "update_memory": {
+            const content = (tool.input as { content: string }).content;
+            await writeAppMemory(options.appId, content);
+            emit({ type: "memory_updated" });
+            steps.push({ type: "memory_update" });
+            resultContent = "Memory updated.";
+            break;
+          }
+
           default:
             resultContent = `Unknown tool: ${tool.name}`;
         }
@@ -318,7 +380,8 @@ export async function runAgentTurn(
 
 export function buildSystemPrompt(
   datasetRef: DatasetRef,
-  files: Array<{ file_path: string; category: string | null }>
+  files: Array<{ file_path: string; category: string | null }>,
+  memory: string | null = null
 ): string {
   const fqPrefix = `${datasetRef.projectId}.${datasetRef.datasetId}`;
 
@@ -327,6 +390,10 @@ export function buildSystemPrompt(
       ? `## Entity files in this app\nThe following files are available. Use \`read_file\` to read the ones relevant to the question.\n\n${files.map((f) => `  ${f.file_path}${f.category ? ` [${f.category}]` : ""}`).join("\n")}`
       : `## Entity files\nNo entity files uploaded. Use \`list_tables\` and \`get_table_schema\` to discover the schema.`;
 
+  const memorySection = memory?.trim()
+    ? `## Shared knowledge (learned from previous queries)\nThis is accumulated knowledge about this dataset. Trust it — it was written by you or a previous run.\n\n${memory.trim()}\n`
+    : "";
+
   return `You are a BigQuery SQL expert. Translate natural-language questions into accurate BigQuery SQL and execute them.
 
 ## Dataset
@@ -334,11 +401,13 @@ Target dataset: \`${fqPrefix}\`
 
 ${fileList}
 
+${memorySection}
 ## Workflow — follow this order strictly
 1. **Read the entity file.** Find the relevant entity/model file and read it — table name, column names, types, and enum values are all there.
 2. **Follow imports for enums — mandatory.** After reading an entity file, scan its imports. For any column filtering by status/type/role, read the imported enum file to get exact string values. Wrong values silently return 0 rows.
 3. **Write and run the query immediately.** Use \`run_query\`. Do NOT call \`list_tables\` or \`get_table_schema\` first unless there are no entity files.
 4. **Summarize** results in plain English.
+5. **Update memory if you learned a schema fact.** After a successful query, if you discovered something non-obvious about column types, enum values, JSON structure, or join patterns — call \`update_memory\`. Do NOT write workflow instructions, SQL rules, dataset names, or row counts into memory.
 
 ## SQL rules
 - Always use fully-qualified table references: \`${fqPrefix}.table_name\`
