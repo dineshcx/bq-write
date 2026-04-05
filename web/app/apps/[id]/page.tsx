@@ -5,7 +5,7 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DbAppDataset } from "@/lib/supabase";
-import type { Message } from "@/lib/agent/runner";
+import type { Message, AgentStep } from "@/lib/agent/runner";
 
 interface AppInfo {
   id: string;
@@ -17,7 +17,7 @@ interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   clarification?: string;
-  queries?: string[];
+  steps?: AgentStep[];
 }
 
 const PROGRESS_LABELS: Record<string, (e: Record<string, string>) => string> = {
@@ -104,12 +104,12 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
 
           if (event.type === "done") {
             setHistory((event.history as Message[]) ?? []);
-            setChat((prev) => [...prev, { role: "assistant", text: event.answer as string, queries: (event.queries as string[]) ?? [] }]);
+            setChat((prev) => [...prev, { role: "assistant", text: event.answer as string, steps: (event.steps as AgentStep[]) ?? [] }]);
             setThinking(false);
             setProgressLabel("");
           } else if (event.type === "clarification") {
             setHistory((event.history as Message[]) ?? []);
-            setChat((prev) => [...prev, { role: "assistant", text: "", clarification: event.question as string, queries: (event.queries as string[]) ?? [] }]);
+            setChat((prev) => [...prev, { role: "assistant", text: "", clarification: event.question as string, steps: (event.steps as AgentStep[]) ?? [] }]);
             setThinking(false);
             setProgressLabel("");
           } else if (event.type === "error") {
@@ -208,8 +208,8 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
                       <MarkdownMessage text={msg.text} />
                     </div>
                   )}
-                  {msg.queries && msg.queries.length > 0 && (
-                    <QueryLog queries={msg.queries} />
+                  {msg.steps && msg.steps.length > 0 && (
+                    <StepsTrace steps={msg.steps} />
                   )}
                 </div>
               )}
@@ -328,33 +328,95 @@ function MarkdownMessage({ text }: { text: string }) {
   );
 }
 
-function QueryLog({ queries }: { queries: string[] }) {
+function StepsTrace({ steps }: { steps: AgentStep[] }) {
   const [open, setOpen] = useState(false);
-  const label = queries.length === 1 ? "1 query" : `${queries.length} queries`;
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
+  const queryCount = steps.filter((s) => s.type === "query").length;
+  const label = `${steps.length} step${steps.length !== 1 ? "s" : ""}${queryCount > 0 ? ` · ${queryCount} quer${queryCount !== 1 ? "ies" : "y"}` : ""}`;
 
   return (
-    <div className="pl-1">
+    <div className="pl-1 mt-1">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
       >
-        <svg
-          width="12" height="12" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth="2"
-          className={`transition-transform ${open ? "rotate-90" : ""}`}
-        >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`}>
           <path d="M9 18l6-6-6-6" />
         </svg>
-        {label} executed
+        {label}
       </button>
 
       {open && (
-        <div className="mt-2 space-y-2">
-          {queries.map((sql, i) => (
-            <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 overflow-x-auto">
-              <pre className="text-xs text-zinc-400 font-mono whitespace-pre">{sql.trim()}</pre>
-            </div>
+        <div className="mt-3 ml-1 border-l border-zinc-800 pl-4 space-y-2">
+          {steps.map((step, i) => (
+            <StepRow key={i} step={step} index={i} expanded={expandedIdx === i} onToggle={() => setExpandedIdx(expandedIdx === i ? null : i)} />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepRow({ step, index, expanded, onToggle }: { step: AgentStep; index: number; expanded: boolean; onToggle: () => void }) {
+  const isExpandable = step.type === "query" || step.type === "thought";
+
+  const icon = {
+    thought:       "💭",
+    reading_file:  "📄",
+    listing_files: "📂",
+    listing_tables:"📋",
+    getting_schema:"🔍",
+    query:         "⚡",
+  }[step.type] ?? "•";
+
+  function label() {
+    switch (step.type) {
+      case "thought":        return "Agent reasoning";
+      case "reading_file":   return `Read ${step.path.split("/").pop()}`;
+      case "listing_files":  return "Listed entity files";
+      case "listing_tables": return "Fetched table list";
+      case "getting_schema": return `Got schema for ${step.table}`;
+      case "query":
+        return step.error
+          ? `Query failed`
+          : `Query → ${step.rows} row${step.rows !== 1 ? "s" : ""}`;
+    }
+  }
+
+  return (
+    <div>
+      <button
+        onClick={isExpandable ? onToggle : undefined}
+        className={`flex items-center gap-2 w-full text-left group ${isExpandable ? "cursor-pointer" : "cursor-default"}`}
+      >
+        <span className="text-sm w-4 flex-shrink-0">{icon}</span>
+        <span className={`text-xs flex-1 ${
+          step.type === "query" && step.error
+            ? "text-red-400"
+            : step.type === "thought"
+            ? "text-zinc-500 italic"
+            : "text-zinc-400"
+        }`}>
+          {label()}
+        </span>
+        {isExpandable && (
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            className={`text-zinc-700 flex-shrink-0 transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}>
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        )}
+      </button>
+
+      {expanded && isExpandable && (
+        <div className="mt-1.5 ml-6 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 overflow-x-auto">
+          {step.type === "thought" && (
+            <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap">{step.text}</p>
+          )}
+          {step.type === "query" && (
+            <pre className="text-xs text-zinc-400 font-mono whitespace-pre">{step.sql.trim()}</pre>
+          )}
         </div>
       )}
     </div>

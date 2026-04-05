@@ -37,6 +37,15 @@ export type ProgressEvent =
   | { type: "running_query"; sql: string }
   | { type: "query_done"; rows: number };
 
+// Ordered trace of every action the agent took
+export type AgentStep =
+  | { type: "thought"; text: string }
+  | { type: "reading_file"; path: string }
+  | { type: "listing_files" }
+  | { type: "listing_tables" }
+  | { type: "getting_schema"; table: string }
+  | { type: "query"; sql: string; rows?: number; error?: string };
+
 export interface AgentRunOptions {
   appId: string;
   datasetRef: DatasetRef;
@@ -50,6 +59,7 @@ export interface AgentRunResult {
   clarification?: string;
   queryResult?: QueryResult;
   queries: string[];
+  steps: AgentStep[];
 }
 
 const MAX_ITERATIONS = 15;
@@ -175,6 +185,7 @@ export async function runAgentTurn(
 
   const emit = options.onProgress ?? (() => {});
   const executedQueries: string[] = [];
+  const steps: AgentStep[] = [];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     emit({ type: "thinking" });
@@ -197,9 +208,14 @@ export async function runAgentTurn(
       (b) => b.type === "tool_use"
     ) as Anthropic.ToolUseBlock[];
 
+    // Capture intermediate reasoning text (thought before tool calls)
+    if (textBlock?.text && toolUses.length > 0) {
+      steps.push({ type: "thought", text: textBlock.text });
+    }
+
     if (response.stop_reason === "end_turn" || toolUses.length === 0) {
       messages.push(...(localMessages.slice(messages.length) as Message[]));
-      return { finalText: textBlock?.text ?? "", queryResult: lastQueryResult, queries: executedQueries };
+      return { finalText: textBlock?.text ?? "", queryResult: lastQueryResult, queries: executedQueries, steps };
     }
 
     // Dispatch tool calls
@@ -213,6 +229,7 @@ export async function runAgentTurn(
           case "list_directory": {
             const p = (tool.input as { path: string }).path || ".";
             emit({ type: "listing_files" });
+            steps.push({ type: "listing_files" });
             resultContent = await listAppFiles(options.appId, p);
             break;
           }
@@ -220,12 +237,14 @@ export async function runAgentTurn(
           case "read_file": {
             const p = (tool.input as { path: string }).path;
             emit({ type: "reading_file", path: p });
+            steps.push({ type: "reading_file", path: p });
             resultContent = await readAppFile(options.appId, p);
             break;
           }
 
           case "list_tables": {
             emit({ type: "listing_tables" });
+            steps.push({ type: "listing_tables" });
             const tables = await listTables(options.datasetRef, options.accessToken);
             resultContent = JSON.stringify(tables, null, 2);
             break;
@@ -234,6 +253,7 @@ export async function runAgentTurn(
           case "get_table_schema": {
             const tableId = (tool.input as { table_id: string }).table_id;
             emit({ type: "getting_schema", table: tableId });
+            steps.push({ type: "getting_schema", table: tableId });
             const schema = await getTableSchema(options.datasetRef, tableId, options.accessToken);
             resultContent = JSON.stringify(schema, null, 2);
             break;
@@ -248,6 +268,7 @@ export async function runAgentTurn(
             const result = await runQuery(options.datasetRef, sql, options.accessToken);
             lastQueryResult = result;
             emit({ type: "query_done", rows: result.totalRows });
+            steps.push({ type: "query", sql, rows: result.totalRows });
             resultContent = JSON.stringify(
               {
                 totalRows: result.totalRows,
@@ -264,15 +285,20 @@ export async function runAgentTurn(
           case "ask_clarification": {
             const question = (tool.input as { question: string }).question;
             messages.push(...(localMessages.slice(messages.length) as Message[]));
-            return { finalText: "", clarification: question, queryResult: lastQueryResult, queries: executedQueries };
+            return { finalText: "", clarification: question, queryResult: lastQueryResult, queries: executedQueries, steps };
           }
 
           default:
             resultContent = `Unknown tool: ${tool.name}`;
         }
       } catch (err) {
-        resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+        const msg = err instanceof Error ? err.message : String(err);
+        resultContent = `Error: ${msg}`;
         console.error(`[agent] tool "${tool.name}" failed:`, err);
+        if (tool.name === "run_query") {
+          const sql = (tool.input as { sql: string }).sql;
+          steps.push({ type: "query", sql, error: msg });
+        }
       }
 
       toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: resultContent });
@@ -286,6 +312,7 @@ export async function runAgentTurn(
     finalText: "Maximum iterations reached. Please try a more specific question.",
     queryResult: lastQueryResult,
     queries: executedQueries,
+    steps,
   };
 }
 

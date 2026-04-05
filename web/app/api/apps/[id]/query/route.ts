@@ -106,9 +106,9 @@ export async function POST(
         });
 
         if (result.clarification) {
-          send({ type: "clarification", question: result.clarification, history: messages, queries: result.queries });
+          send({ type: "clarification", question: result.clarification, history: messages, queries: result.queries, steps: result.steps });
         } else {
-          send({ type: "done", answer: result.finalText, history: messages, queries: result.queries });
+          send({ type: "done", answer: result.finalText, history: messages, queries: result.queries, steps: result.steps });
         }
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : "Unknown error" });
