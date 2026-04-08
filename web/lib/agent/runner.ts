@@ -46,7 +46,7 @@ export type AgentStep =
   | { type: "listing_files" }
   | { type: "listing_tables" }
   | { type: "getting_schema"; table: string }
-  | { type: "query"; sql: string; rows?: number; error?: string }
+  | { type: "query"; sql: string; rows?: number; error?: string; preview?: Record<string, unknown>[]; schema?: Array<{ name: string; type: string }> }
   | { type: "memory_update" };
 
 export interface AgentRunOptions {
@@ -362,7 +362,7 @@ export async function runAgentTurn(
             const result = await runQuery(options.datasetRef, sql, options.accessToken);
             lastQueryResult = result;
             emit({ type: "query_done", rows: result.totalRows });
-            steps.push({ type: "query", sql, rows: result.totalRows });
+            steps.push({ type: "query", sql, rows: result.totalRows, preview: result.rows.slice(0, 5), schema: result.schema });
             resultContent = JSON.stringify(
               {
                 totalRows: result.totalRows,

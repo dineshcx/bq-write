@@ -437,6 +437,50 @@ function CheckIcon({ className = "" }: { className?: string }) {
   );
 }
 
+// ─── Query results preview table ──────────────────────────────────────────────
+
+function QueryPreview({ rows, schema, totalRows }: { rows: Record<string, unknown>[]; schema: Array<{ name: string; type: string }>; totalRows?: number }) {
+  const truncated = totalRows !== undefined && totalRows > rows.length;
+  return (
+    <div className="border-t border-zinc-800/60">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/40 border-b border-zinc-800/60">
+        <span className="text-zinc-700 text-[10px] uppercase tracking-wider font-medium">
+          Preview
+        </span>
+        {truncated && (
+          <span className="text-zinc-600 text-[10px]">
+            showing {rows.length} of {totalRows} rows
+          </span>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[10px] font-mono">
+          <thead>
+            <tr className="border-b border-zinc-800/40">
+              {schema.map((col) => (
+                <th key={col.name} className="px-3 py-1.5 text-left text-zinc-600 font-medium whitespace-nowrap">
+                  {col.name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className={i < rows.length - 1 ? "border-b border-zinc-800/30" : ""}>
+                {schema.map((col) => (
+                  <td key={col.name} className="px-3 py-1.5 text-zinc-500 whitespace-nowrap max-w-[200px] truncate">
+                    {row[col.name] == null ? <span className="text-zinc-700">null</span> : String(row[col.name])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Live trace (builds up while thinking) ────────────────────────────────────
 
 function LiveTrace({ steps }: { steps: LiveStep[] }) {
@@ -612,17 +656,31 @@ function FrozenTrace({ steps }: { steps: AgentStep[] }) {
                   )}
                 </button>
 
-                {isExpanded && detail && (
+                {isExpanded && (
                   <div className="mx-3 mb-1 rounded-lg overflow-hidden border border-zinc-800/60 bg-zinc-950">
-                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/60 bg-zinc-900/40">
-                      <span className="text-zinc-700 text-[10px] uppercase tracking-wider font-medium">
-                        {step.type === "thought" ? "Reasoning" : "SQL"}
-                      </span>
-                      {step.type !== "thought" && <CopyButton text={detail} />}
-                    </div>
-                    <pre className="px-3 py-2.5 text-xs text-zinc-500 font-mono whitespace-pre-wrap overflow-x-auto leading-relaxed">
-                      {detail.trim()}
-                    </pre>
+                    {step.type === "thought" ? (
+                      <>
+                        <div className="flex items-center px-3 py-1.5 border-b border-zinc-800/60 bg-zinc-900/40">
+                          <span className="text-zinc-700 text-[10px] uppercase tracking-wider font-medium">Reasoning</span>
+                        </div>
+                        <pre className="px-3 py-2.5 text-xs text-zinc-500 font-mono whitespace-pre-wrap overflow-x-auto leading-relaxed">
+                          {step.text.trim()}
+                        </pre>
+                      </>
+                    ) : step.type === "query" ? (
+                      <>
+                        <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/60 bg-zinc-900/40">
+                          <span className="text-zinc-700 text-[10px] uppercase tracking-wider font-medium">SQL</span>
+                          <CopyButton text={step.sql} />
+                        </div>
+                        <pre className="px-3 py-2.5 text-xs text-zinc-500 font-mono whitespace-pre-wrap overflow-x-auto leading-relaxed">
+                          {step.sql.trim()}
+                        </pre>
+                        {step.preview && step.preview.length > 0 && step.schema && (
+                          <QueryPreview rows={step.preview} schema={step.schema} totalRows={step.rows} />
+                        )}
+                      </>
+                    ) : null}
                   </div>
                 )}
 
