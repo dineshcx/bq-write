@@ -1,4 +1,5 @@
 "use client";
+import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { AccessDenied } from "@/components/auth-guards";
 import { useAuth } from "@/lib/auth-context";
 
@@ -9,5 +10,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return <AccessDenied message="This area is restricted to admins." />;
   }
 
-  return <>{children}</>;
+  return (
+    <div className="min-h-screen flex">
+      <AdminSidebar />
+      <main className="flex-1 ml-60 min-h-screen">
+        {children}
+      </main>
+    </div>
+  );
 }

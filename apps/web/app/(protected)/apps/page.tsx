@@ -1,14 +1,19 @@
 "use client";
-import { signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { DbApp } from "@/lib/supabase";
+import { Database, Search, ChevronRight, Users, LayoutGrid } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { UserNav } from "@/components/layout/user-nav";
 import { useAuth } from "@/lib/auth-context";
+import type { DbApp } from "@/lib/supabase";
 
 export default function AppsPage() {
   const session = useAuth();
   const [apps, setApps] = useState<DbApp[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     fetch("/api/apps")
@@ -17,63 +22,121 @@ export default function AppsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const filtered = apps.filter(
+    (app) =>
+      app.name.toLowerCase().includes(search.toLowerCase()) ||
+      app.description?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const isAdmin = ["admin", "superadmin"].includes(session.role);
+
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-zinc-800 px-6 py-3 flex items-center justify-between">
-        <span className="font-semibold text-sm">bq-write</span>
-        <div className="flex items-center gap-4">
-          {["admin", "superadmin"].includes(session.role) && (
-            <Link
-              href={session.role === "superadmin" ? "/s-admin" : "/s-admin/apps"}
-              className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
-            >
-              Admin
-            </Link>
-          )}
-          <span className="text-zinc-400 text-sm">{session.user?.email}</span>
-          <button
-            onClick={() => signOut({ callbackUrl: "/" })}
-            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
-          >
-            Sign out
-          </button>
+    <div className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-sm px-6 h-14 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-zinc-800 border border-zinc-700">
+            <Database className="w-3.5 h-3.5 text-zinc-300" />
+          </div>
+          <span className="font-semibold text-sm">bq-write</span>
         </div>
+        <UserNav
+          email={session.user?.email}
+          name={session.user?.name}
+          role={session.role}
+          showAdminLink={isAdmin}
+        />
       </header>
 
-      <main className="px-6 py-8 max-w-3xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-lg font-semibold">Your apps</h1>
-          <p className="text-zinc-400 text-sm mt-0.5">Select an app to start querying.</p>
+      {/* Main */}
+      <main className="flex-1 px-6 py-10 max-w-4xl mx-auto w-full">
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold">Workspaces</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Select a workspace to start querying your data.
+            </p>
+          </div>
+          {apps.length > 0 && (
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search workspaces..."
+                className="pl-8 h-9 text-sm"
+              />
+            </div>
+          )}
         </div>
 
-        {loading && <p className="text-zinc-500 text-sm">Loading...</p>}
-
-        {!loading && apps.length === 0 && (
-          <div className="rounded-lg border border-zinc-800 p-8 text-center">
-            <p className="text-zinc-500 text-sm">You have not been added to any apps yet.</p>
-            <p className="text-zinc-600 text-xs mt-1">Ask an admin to add you.</p>
+        {/* Loading skeletons */}
+        {loading && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="rounded-xl border border-border p-5 space-y-3">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-48" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
-        {!loading && apps.length > 0 && (
-          <div className="space-y-2">
-            {apps.map((app) => (
+        {/* Empty state */}
+        {!loading && apps.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mb-4">
+              <LayoutGrid className="w-6 h-6 text-zinc-500" />
+            </div>
+            <h3 className="text-sm font-medium mb-1">No workspaces yet</h3>
+            <p className="text-xs text-muted-foreground max-w-xs">
+              You haven't been added to any workspaces. Ask an admin to add you.
+            </p>
+          </div>
+        )}
+
+        {/* No search results */}
+        {!loading && apps.length > 0 && filtered.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-sm text-muted-foreground">No workspaces match &ldquo;{search}&rdquo;</p>
+          </div>
+        )}
+
+        {/* App grid */}
+        {!loading && filtered.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {filtered.map((app) => (
               <Link
                 key={app.id}
                 href={`/apps/${app.id}`}
-                className="flex items-center justify-between rounded-lg border border-zinc-800 px-4 py-4 hover:border-zinc-700 hover:bg-zinc-900/30 transition-colors group"
+                className="group rounded-xl border border-border bg-card p-5 hover:border-zinc-600 hover:bg-card/80 transition-all space-y-3"
               >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0 group-hover:border-zinc-600 transition-colors">
+                    <Database className="w-4 h-4 text-zinc-400" />
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all mt-1 flex-shrink-0" />
+                </div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200 group-hover:text-white transition-colors">
-                    {app.name}
-                  </p>
+                  <p className="font-medium text-sm group-hover:text-foreground transition-colors">{app.name}</p>
                   {app.description && (
-                    <p className="text-xs text-zinc-500 mt-0.5">{app.description}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{app.description}</p>
                   )}
                 </div>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-zinc-600 group-hover:text-zinc-400 transition-colors">
-                  <path d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
+                <div className="flex items-center gap-1.5">
+                  <Badge variant="secondary" className="text-[10px] px-2 py-0.5 gap-1">
+                    <Database className="w-2.5 h-2.5" />
+                    Dataset
+                  </Badge>
+                  <Badge variant="secondary" className="text-[10px] px-2 py-0.5 gap-1">
+                    <Users className="w-2.5 h-2.5" />
+                    Members
+                  </Badge>
+                </div>
               </Link>
             ))}
           </div>
@@ -82,4 +145,3 @@ export default function AppsPage() {
     </div>
   );
 }
-

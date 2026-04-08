@@ -1,12 +1,15 @@
 "use client";
-import { signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Database, Plus, ChevronRight, Calendar } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { DbApp } from "@/lib/supabase";
-import { useAuth } from "@/lib/auth-context";
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
 export default function AdminAppsPage() {
-  const session = useAuth();
   const [apps, setApps] = useState<DbApp[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,79 +21,88 @@ export default function AdminAppsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-zinc-800 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/apps" className="font-semibold text-sm hover:text-zinc-300 transition-colors">bq-write</Link>
-          <span className="text-zinc-600">/</span>
-          <Link href="/s-admin" className="text-zinc-400 text-sm hover:text-zinc-200">Admin</Link>
-          <span className="text-zinc-600">/</span>
-          <span className="text-zinc-400 text-sm">Apps</span>
+    <div className="p-8">
+      {/* Page header */}
+      <div className="flex items-start justify-between mb-8 gap-4">
+        <div>
+          <h1 className="text-xl font-semibold">Apps</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Manage apps, entity files, datasets, and members.
+          </p>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-zinc-400 text-sm">{session.user?.email}</span>
-          <button
-            onClick={() => signOut({ callbackUrl: "/" })}
-            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
-          >
-            Sign out
-          </button>
+        <Link
+          href="/s-admin/apps/new"
+          className="flex items-center gap-2 bg-foreground text-background text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 transition-opacity flex-shrink-0"
+        >
+          <Plus className="w-4 h-4" />
+          New app
+        </Link>
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-5 space-y-3">
+              <div className="flex items-start gap-3">
+                <Skeleton className="w-8 h-8 rounded-lg" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-48" />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-      </header>
+      )}
 
-      <nav className="border-b border-zinc-800 px-6 flex gap-1">
-        <span className="px-3 py-2.5 text-sm text-zinc-200 border-b-2 border-zinc-200">Apps</span>
-        <Link href="/s-admin" className="px-3 py-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Users</Link>
-      </nav>
-
-      <main className="px-6 py-8 max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-lg font-semibold">Apps</h1>
-            <p className="text-zinc-400 text-sm mt-0.5">Manage apps and their entity files, datasets, and members.</p>
+      {/* Empty state */}
+      {!loading && apps.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mb-4">
+            <Database className="w-6 h-6 text-zinc-500" />
           </div>
+          <h3 className="text-sm font-medium mb-1">No apps yet</h3>
+          <p className="text-xs text-muted-foreground mb-4">Create your first app to get started.</p>
           <Link
             href="/s-admin/apps/new"
-            className="bg-zinc-100 text-zinc-900 text-sm font-medium px-4 py-2 rounded-lg hover:bg-white transition-colors"
+            className="flex items-center gap-2 bg-foreground text-background text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 transition-opacity"
           >
-            New app
+            <Plus className="w-4 h-4" />
+            Create first app
           </Link>
         </div>
+      )}
 
-        {loading && <p className="text-zinc-500 text-sm">Loading...</p>}
-
-        {!loading && apps.length === 0 && (
-          <div className="rounded-lg border border-zinc-800 p-8 text-center">
-            <p className="text-zinc-500 text-sm">No apps yet.</p>
-            <Link href="/s-admin/apps/new" className="text-zinc-300 text-sm hover:underline mt-2 inline-block">
-              Create your first app
-            </Link>
-          </div>
-        )}
-
-        {!loading && apps.length > 0 && (
-          <div className="space-y-2">
-            {apps.map((app) => (
-              <Link
-                key={app.id}
-                href={`/s-admin/apps/${app.id}`}
-                className="flex items-center justify-between rounded-lg border border-zinc-800 px-4 py-3 hover:border-zinc-700 hover:bg-zinc-900/30 transition-colors"
-              >
-                <div>
-                  <p className="text-sm font-medium text-zinc-200">{app.name}</p>
-                  {app.description && (
-                    <p className="text-xs text-zinc-500 mt-0.5">{app.description}</p>
-                  )}
+      {/* App grid */}
+      {!loading && apps.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {apps.map((app) => (
+            <Link
+              key={app.id}
+              href={`/s-admin/apps/${app.id}`}
+              className="group rounded-xl border border-border bg-card p-5 hover:border-zinc-600 hover:bg-card/80 transition-all space-y-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0 group-hover:border-zinc-600 transition-colors">
+                  <Database className="w-4 h-4 text-zinc-400" />
                 </div>
-                <span className="text-zinc-600 text-xs">
-                  {new Date(app.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                </span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </main>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all mt-1 flex-shrink-0" />
+              </div>
+              <div>
+                <p className="font-medium text-sm group-hover:text-foreground transition-colors">{app.name}</p>
+                {app.description && (
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{app.description}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                <Calendar className="w-3 h-3" />
+                <span>Created {formatDate(app.created_at)}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
-
