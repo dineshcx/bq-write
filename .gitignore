@@ -5,3 +5,4 @@ dist/
 *.d.ts.map
 .next/
 tsconfig.tsbuildinfo
+.turbo/
