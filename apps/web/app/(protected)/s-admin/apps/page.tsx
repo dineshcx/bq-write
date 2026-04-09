@@ -59,8 +59,8 @@ export default function AdminAppsPage() {
       {/* Empty state */}
       {!loading && apps.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mb-4">
-            <Database className="w-6 h-6 text-zinc-500" />
+          <div className="w-12 h-12 rounded-xl bg-muted border border-border flex items-center justify-center mb-4">
+            <Database className="w-6 h-6 text-muted-foreground" />
           </div>
           <h3 className="text-sm font-medium mb-1">No apps yet</h3>
           <p className="text-xs text-muted-foreground mb-4">Create your first app to get started.</p>
@@ -81,11 +81,11 @@ export default function AdminAppsPage() {
             <Link
               key={app.id}
               href={`/s-admin/apps/${app.id}`}
-              className="group rounded-xl border border-border bg-card p-5 hover:border-zinc-600 hover:bg-card/80 transition-all space-y-3"
+              className="group rounded-xl border border-border bg-card p-5 hover:border-foreground/20 hover:bg-accent/30 transition-all space-y-3"
             >
               <div className="flex items-start justify-between gap-2">
-                <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0 group-hover:border-zinc-600 transition-colors">
-                  <Database className="w-4 h-4 text-zinc-400" />
+                <div className="w-8 h-8 rounded-lg bg-muted border border-border flex items-center justify-center flex-shrink-0 transition-colors">
+                  <Database className="w-4 h-4 text-muted-foreground" />
                 </div>
                 <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all mt-1 flex-shrink-0" />
               </div>

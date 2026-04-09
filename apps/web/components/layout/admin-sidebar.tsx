@@ -2,7 +2,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { Database, LayoutDashboard, AppWindow, Users, LogOut } from "lucide-react";
+import { Database, LayoutDashboard, AppWindow, Users, LogOut, Sun, Moon } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -17,23 +19,27 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const session = useAuth();
   const { role, user } = session;
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const isDark = resolvedTheme === "dark";
 
   const initials = user?.name
     ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
     : user?.email?.[0]?.toUpperCase() ?? "?";
 
   const roleColors: Record<string, string> = {
-    superadmin: "bg-purple-900/60 text-purple-300 border-purple-800",
-    admin: "bg-blue-900/60 text-blue-300 border-blue-800",
-    member: "bg-zinc-800 text-zinc-400 border-zinc-700",
+    superadmin: "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/60 dark:text-purple-300 dark:border-purple-800",
+    admin: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/60 dark:text-blue-300 dark:border-blue-800",
+    member: "bg-muted text-muted-foreground border-border",
   };
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex flex-col w-60 border-r border-border bg-card">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-4 h-14 border-b border-border flex-shrink-0">
-        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-zinc-800 border border-zinc-700">
-          <Database className="w-3.5 h-3.5 text-zinc-300" />
+        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-muted border border-border">
+          <Database className="w-3.5 h-3.5 text-muted-foreground" />
         </div>
         <div className="flex items-center gap-2">
           <span className="font-semibold text-sm">bq-write</span>
@@ -82,7 +88,7 @@ export function AdminSidebar() {
       <div className="border-t border-border p-3 space-y-2 flex-shrink-0">
         <div className="flex items-center gap-2.5 px-1">
           <Avatar className="h-7 w-7 flex-shrink-0">
-            <AvatarFallback className="text-xs bg-zinc-700 text-zinc-300">{initials}</AvatarFallback>
+            <AvatarFallback className="text-xs bg-muted text-foreground">{initials}</AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium truncate">{user?.name ?? user?.email}</p>
@@ -91,13 +97,25 @@ export function AdminSidebar() {
             </span>
           </div>
         </div>
-        <button
-          onClick={() => signOut({ callbackUrl: "/" })}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-          Sign out
-        </button>
+        <div className="flex items-center gap-1">
+          {mounted && (
+            <button
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              aria-label="Toggle theme"
+            >
+              {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+              {isDark ? "Light" : "Dark"}
+            </button>
+          )}
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            Sign out
+          </button>
+        </div>
       </div>
     </aside>
   );

@@ -1,9 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Database, Search, ChevronRight, Users, LayoutGrid } from "lucide-react";
+import { Database, Search, ChevronRight, LayoutGrid } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserNav } from "@/components/layout/user-nav";
 import { useAuth } from "@/lib/auth-context";
@@ -35,8 +34,8 @@ export default function AppsPage() {
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-sm px-6 h-14 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-zinc-800 border border-zinc-700">
-            <Database className="w-3.5 h-3.5 text-zinc-300" />
+          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-muted border border-border">
+            <Database className="w-3.5 h-3.5 text-muted-foreground" />
           </div>
           <span className="font-semibold text-sm">bq-write</span>
         </div>
@@ -77,10 +76,6 @@ export default function AppsPage() {
               <div key={i} className="rounded-xl border border-border p-5 space-y-3">
                 <Skeleton className="h-4 w-32" />
                 <Skeleton className="h-3 w-48" />
-                <div className="flex gap-2">
-                  <Skeleton className="h-5 w-16 rounded-full" />
-                  <Skeleton className="h-5 w-16 rounded-full" />
-                </div>
               </div>
             ))}
           </div>
@@ -89,8 +84,8 @@ export default function AppsPage() {
         {/* Empty state */}
         {!loading && apps.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mb-4">
-              <LayoutGrid className="w-6 h-6 text-zinc-500" />
+            <div className="w-12 h-12 rounded-xl bg-muted border border-border flex items-center justify-center mb-4">
+              <LayoutGrid className="w-6 h-6 text-muted-foreground" />
             </div>
             <h3 className="text-sm font-medium mb-1">No workspaces yet</h3>
             <p className="text-xs text-muted-foreground max-w-xs">
@@ -113,11 +108,11 @@ export default function AppsPage() {
               <Link
                 key={app.id}
                 href={`/apps/${app.id}`}
-                className="group rounded-xl border border-border bg-card p-5 hover:border-zinc-600 hover:bg-card/80 transition-all space-y-3"
+                className="group rounded-xl border border-border bg-card p-5 hover:border-foreground/20 hover:bg-accent/30 transition-all space-y-3"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0 group-hover:border-zinc-600 transition-colors">
-                    <Database className="w-4 h-4 text-zinc-400" />
+                  <div className="w-8 h-8 rounded-lg bg-muted border border-border flex items-center justify-center flex-shrink-0 transition-colors">
+                    <Database className="w-4 h-4 text-muted-foreground" />
                   </div>
                   <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all mt-1 flex-shrink-0" />
                 </div>
@@ -126,16 +121,6 @@ export default function AppsPage() {
                   {app.description && (
                     <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{app.description}</p>
                   )}
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Badge variant="secondary" className="text-[10px] px-2 py-0.5 gap-1">
-                    <Database className="w-2.5 h-2.5" />
-                    Dataset
-                  </Badge>
-                  <Badge variant="secondary" className="text-[10px] px-2 py-0.5 gap-1">
-                    <Users className="w-2.5 h-2.5" />
-                    Members
-                  </Badge>
                 </div>
               </Link>
             ))}

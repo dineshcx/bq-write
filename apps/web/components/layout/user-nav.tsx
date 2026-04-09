@@ -1,7 +1,9 @@
 "use client";
+import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
-import Link from "next/link";
-import { LogOut, Settings, ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LogOut, Settings, ChevronDown, Sun, Moon } from "lucide-react";
+import { useTheme } from "next-themes";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -22,29 +24,33 @@ interface UserNavProps {
 }
 
 export function UserNav({ email, name, role, showAdminLink }: UserNavProps) {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const router = useRouter();
+  useEffect(() => setMounted(true), []);
+
   const initials = name
     ? name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
     : email?.[0]?.toUpperCase() ?? "?";
 
   const adminHref = role === "superadmin" ? "/s-admin" : "/s-admin/apps";
+  const isDark = resolvedTheme === "dark";
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent transition-colors outline-none">
-          <Avatar className="h-7 w-7">
-            <AvatarFallback className="text-xs bg-zinc-700 text-zinc-300">{initials}</AvatarFallback>
-          </Avatar>
-          <div className="hidden sm:flex flex-col items-start">
-            <span className="text-xs font-medium leading-none">{name ?? email}</span>
-            {role && role !== "member" && (
-              <Badge variant="secondary" className="mt-0.5 text-[10px] px-1 py-0 h-4 leading-none">
-                {role}
-              </Badge>
-            )}
-          </div>
-          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-        </button>
+      <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent transition-colors outline-none">
+        <Avatar className="h-7 w-7">
+          <AvatarFallback className="text-xs bg-muted text-foreground">{initials}</AvatarFallback>
+        </Avatar>
+        <div className="hidden sm:flex flex-col items-start">
+          <span className="text-xs font-medium leading-none">{name ?? email}</span>
+          {role && role !== "member" && (
+            <Badge variant="secondary" className="mt-0.5 text-[10px] px-1 py-0 h-4 leading-none">
+              {role}
+            </Badge>
+          )}
+        </div>
+        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuGroup>
@@ -56,17 +62,22 @@ export function UserNav({ email, name, role, showAdminLink }: UserNavProps) {
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        {showAdminLink && (
-          <>
-            <DropdownMenuItem asChild>
-              <Link href={adminHref} className="cursor-pointer">
-                <Settings className="mr-2 h-4 w-4" />
-                Admin panel
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
+
+        {/* Theme toggle */}
+        {mounted && (
+          <DropdownMenuItem onClick={() => setTheme(isDark ? "light" : "dark")} className="cursor-pointer">
+            {isDark ? <Sun className="mr-2 h-4 w-4" /> : <Moon className="mr-2 h-4 w-4" />}
+            {isDark ? "Light mode" : "Dark mode"}
+          </DropdownMenuItem>
         )}
+
+        {showAdminLink && (
+          <DropdownMenuItem onClick={() => router.push(adminHref)} className="cursor-pointer">
+            <Settings className="mr-2 h-4 w-4" />
+            Admin panel
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-destructive focus:text-destructive cursor-pointer"
           onClick={() => signOut({ callbackUrl: "/" })}

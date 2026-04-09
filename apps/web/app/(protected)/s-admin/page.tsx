@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Users, Shield, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccessDenied } from "@/components/auth-guards";
@@ -13,9 +13,9 @@ function formatDate(iso: string) {
 }
 
 const roleConfig: Record<DbUser["role"], { label: string; className: string }> = {
-  superadmin: { label: "Superadmin", className: "bg-purple-900/40 text-purple-300 border-purple-800/60" },
-  admin:      { label: "Admin",      className: "bg-blue-900/40 text-blue-300 border-blue-800/60" },
-  member:     { label: "Member",     className: "bg-zinc-800 text-zinc-400 border-zinc-700/60" },
+  superadmin: { label: "Superadmin", className: "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-800/60" },
+  admin:      { label: "Admin",      className: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800/60" },
+  member:     { label: "Member",     className: "bg-muted text-muted-foreground border-border" },
 };
 
 export default function SuperAdminPage() {
@@ -36,9 +36,6 @@ export default function SuperAdminPage() {
     return <AccessDenied message="This page is restricted to superadmins." />;
   }
 
-  const memberCount = users.filter((u) => u.role === "member").length;
-  const adminCount = users.filter((u) => ["admin", "superadmin"].includes(u.role)).length;
-
   return (
     <div className="p-8">
       {/* Page header */}
@@ -46,27 +43,6 @@ export default function SuperAdminPage() {
         <h1 className="text-xl font-semibold">Users</h1>
         <p className="text-muted-foreground text-sm mt-1">All users who have signed in to bq-write.</p>
       </div>
-
-      {/* Stats */}
-      {!loading && !error && (
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          {[
-            { label: "Total users", value: users.length, icon: Users },
-            { label: "Members", value: memberCount, icon: Users },
-            { label: "Admins", value: adminCount, icon: Shield },
-          ].map(({ label, value, icon: Icon }) => (
-            <div key={label} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
-              <div className="w-9 h-9 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0">
-                <Icon className="w-4 h-4 text-zinc-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{value}</p>
-                <p className="text-xs text-muted-foreground">{label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Loading */}
       {loading && (
@@ -97,9 +73,8 @@ export default function SuperAdminPage() {
       {/* Users table */}
       {!loading && !error && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center gap-2">
-            <Users className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{users.length} users</span>
+          <div className="px-4 py-3 border-b border-border bg-muted/30">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{users.length} {users.length === 1 ? "user" : "users"}</span>
           </div>
           <div className="divide-y divide-border/50">
             {users.length === 0 && (
@@ -113,8 +88,8 @@ export default function SuperAdminPage() {
               return (
                 <div key={user.id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-muted/20 transition-colors">
                   {/* Avatar */}
-                  <div className="w-8 h-8 rounded-full bg-zinc-700 border border-zinc-600 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-medium text-zinc-300">{initials}</span>
+                  <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center flex-shrink-0">
+                    <span className="text-xs font-medium text-foreground">{initials}</span>
                   </div>
                   {/* Info */}
                   <div className="flex-1 min-w-0">
@@ -130,7 +105,7 @@ export default function SuperAdminPage() {
                     <span>Joined {formatDate(user.created_at)}</span>
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />
-                      {user.last_login_at ? formatDate(user.last_login_at) : "Never"}
+                      Last login: {user.last_login_at ? formatDate(user.last_login_at) : "Never"}
                     </span>
                   </div>
                 </div>

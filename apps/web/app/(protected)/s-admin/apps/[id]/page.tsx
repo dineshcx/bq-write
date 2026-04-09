@@ -4,6 +4,7 @@ import {
   Upload, Database, Users, FileCode2, Trash2,
   Plus, Loader2, Check, AlertCircle, FileText,
 } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,23 +54,12 @@ export default function AdminAppDetailPage({ params }: { params: { id: string } 
       {/* App header */}
       <div className="mb-8">
         <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <Database className="w-5 h-5 text-zinc-400" />
+          <div className="w-10 h-10 rounded-xl bg-muted border border-border flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Database className="w-5 h-5 text-muted-foreground" />
           </div>
           <div>
             <h1 className="text-xl font-semibold">{app.name}</h1>
             {app.description && <p className="text-muted-foreground text-sm mt-1">{app.description}</p>}
-            <div className="flex items-center gap-3 mt-2">
-              <Badge variant="secondary" className="gap-1.5 text-xs">
-                <FileCode2 className="w-3 h-3" />{files.length} files
-              </Badge>
-              <Badge variant="secondary" className="gap-1.5 text-xs">
-                <Database className="w-3 h-3" />{datasets.length} datasets
-              </Badge>
-              <Badge variant="secondary" className="gap-1.5 text-xs">
-                <Users className="w-3 h-3" />{members.length} members
-              </Badge>
-            </div>
           </div>
         </div>
       </div>
@@ -144,7 +134,7 @@ function FilesTab({ appId, files, onReload }: { appId: string; files: DbAppFile[
     model:  "bg-green-900/30 text-green-300 border-green-800/50",
     schema: "bg-purple-900/30 text-purple-300 border-purple-800/50",
     enum:   "bg-amber-900/30 text-amber-300 border-amber-800/50",
-    other:  "bg-zinc-800 text-zinc-400 border-zinc-700",
+    other:  "bg-muted text-muted-foreground border-border",
   };
 
   return (
@@ -153,7 +143,7 @@ function FilesTab({ appId, files, onReload }: { appId: string; files: DbAppFile[
       <div
         className={cn(
           "rounded-xl border-2 border-dashed p-8 text-center transition-colors cursor-pointer",
-          dragOver ? "border-zinc-500 bg-zinc-800/30" : "border-border hover:border-zinc-600 hover:bg-muted/20"
+          dragOver ? "border-foreground/40 bg-muted" : "border-border hover:border-foreground/20 hover:bg-muted/50"
         )}
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -405,8 +395,8 @@ function MembersTab({ appId, members, onReload }: { appId: string; members: Memb
               : u.email[0]?.toUpperCase() ?? "?";
             return (
               <div key={m.user_id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
-                <div className="w-8 h-8 rounded-full bg-zinc-700 border border-zinc-600 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-medium text-zinc-300">{initials}</span>
+                <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center flex-shrink-0">
+                  <span className="text-xs font-medium text-foreground">{initials}</span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{u.name ?? u.email}</p>

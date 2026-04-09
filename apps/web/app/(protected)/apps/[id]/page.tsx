@@ -219,8 +219,8 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
           {/* Empty state */}
           {chat.length === 0 && !thinking && (
             <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center">
-                <Database className="w-5 h-5 text-zinc-400" />
+              <div className="w-10 h-10 rounded-xl bg-muted border border-border flex items-center justify-center">
+                <Database className="w-5 h-5 text-muted-foreground" />
               </div>
               <div>
                 <p className="font-medium text-sm">{app.name}</p>
@@ -240,7 +240,7 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
           {chat.map((msg, i) => (
             <div key={i} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
               {msg.role === "user" ? (
-                <div className="max-w-lg bg-zinc-800 rounded-2xl rounded-br-sm px-4 py-2.5 border border-zinc-700">
+                <div className="max-w-lg bg-foreground text-background rounded-2xl rounded-br-sm px-4 py-2.5">
                   <p className="text-sm">{msg.text}</p>
                 </div>
               ) : (
@@ -284,7 +284,7 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
           {datasets.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-2">No datasets configured for this app.</p>
           ) : (
-            <div className="flex gap-2 items-end bg-card border border-border rounded-xl p-2 focus-within:border-zinc-600 transition-colors">
+            <div className="flex gap-2 items-end bg-card border border-border rounded-xl p-2 focus-within:border-foreground/30 transition-colors">
               <textarea
                 ref={textareaRef}
                 value={question}
@@ -628,7 +628,7 @@ function MemoryPanel({ appId, onClose }: { appId: string; onClose: () => void })
               value={content}
               onChange={(e) => { setContent(e.target.value); if (loadState === "saved") setLoadState("ready"); }}
               placeholder={`## table_name\n- Column facts, enum values, join patterns\n\n## another_table\n- ...`}
-              className="flex-1 w-full bg-card border border-border rounded-lg px-4 py-3 text-xs text-foreground font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:border-zinc-600 transition-colors resize-none leading-relaxed"
+              className="flex-1 w-full bg-card border border-border rounded-lg px-4 py-3 text-xs text-foreground font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 transition-colors resize-none leading-relaxed"
               spellCheck={false}
             />
           )}
