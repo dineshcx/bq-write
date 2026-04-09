@@ -1,18 +1,14 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { NextRequest, NextResponse } from "next/server";
+import { getAdminAuth, ok, err } from "@/lib/api";
 
+// DELETE /api/apps/[id]/datasets/[datasetId] — remove a dataset (admin/superadmin only)
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string; datasetId: string } }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  if (!["admin", "superadmin"].includes(session.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await getAdminAuth();
+  if (!auth.ok) return auth.response;
 
   const { error } = await supabase
     .from("app_datasets")
@@ -20,7 +16,6 @@ export async function DELETE(
     .eq("id", params.datasetId)
     .eq("app_id", params.id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  return NextResponse.json({ ok: true });
+  if (error) return err(error.message, 500);
+  return ok({ ok: true });
 }

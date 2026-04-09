@@ -1,14 +1,14 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { NextRequest, NextResponse } from "next/server";
+import { getAuth, getAdminAuth, ok, err } from "@/lib/api";
 
+// GET /api/apps/[id]/datasets — list datasets for an app
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getAuth();
+  if (!auth.ok) return auth.response;
 
   const { data, error } = await supabase
     .from("app_datasets")
@@ -16,21 +16,17 @@ export async function GET(
     .eq("app_id", params.id)
     .order("created_at");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  return NextResponse.json({ datasets: data });
+  if (error) return err(error.message, 500);
+  return ok({ datasets: data });
 }
 
+// POST /api/apps/[id]/datasets — add a BigQuery dataset (admin/superadmin only)
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  if (!["admin", "superadmin"].includes(session.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await getAdminAuth();
+  if (!auth.ok) return auth.response;
 
   const { label, gcp_project_id, dataset_id } = (await req.json()) as {
     label: string;
@@ -39,10 +35,7 @@ export async function POST(
   };
 
   if (!label?.trim() || !gcp_project_id?.trim() || !dataset_id?.trim()) {
-    return NextResponse.json(
-      { error: "label, gcp_project_id, and dataset_id are required" },
-      { status: 400 }
-    );
+    return err("label, gcp_project_id, and dataset_id are required", 400);
   }
 
   const { data, error } = await supabase
@@ -56,7 +49,6 @@ export async function POST(
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  return NextResponse.json({ dataset: data }, { status: 201 });
+  if (error) return err(error.message, 500);
+  return ok({ dataset: data }, 201);
 }

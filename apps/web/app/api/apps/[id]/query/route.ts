@@ -1,53 +1,22 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
 import { NextRequest } from "next/server";
-import { runAgentTurn, buildSystemPrompt, readAppMemory, type Message, type ProgressEvent } from "@/lib/agent/runner";
+import { supabase } from "@/lib/supabase";
+import { getAppAuth, sseEvent, sseErr, SSE_HEADERS } from "@/lib/api";
+import {
+  runAgentTurn,
+  buildSystemPrompt,
+  readAppMemory,
+  type Message,
+  type ProgressEvent,
+} from "@/lib/agent/runner";
 
-function sseEvent(data: Record<string, unknown>): string {
-  return `data: ${JSON.stringify(data)}\n\n`;
-}
-
+// POST /api/apps/[id]/query — run an agent turn and stream the result via SSE
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return new Response(sseEvent({ type: "error", message: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "text/event-stream" },
-    });
-  }
-
-  const { data: user } = await supabase
-    .from("users")
-    .select("id, role")
-    .eq("email", session.user!.email!)
-    .single();
-
-  if (!user) {
-    return new Response(sseEvent({ type: "error", message: "User not found" }), {
-      status: 404,
-      headers: { "Content-Type": "text/event-stream" },
-    });
-  }
-
-  if (user.role === "member") {
-    const { data: membership } = await supabase
-      .from("app_members")
-      .select("app_id")
-      .eq("app_id", params.id)
-      .eq("user_id", user.id)
-      .single();
-
-    if (!membership) {
-      return new Response(sseEvent({ type: "error", message: "Forbidden" }), {
-        status: 403,
-        headers: { "Content-Type": "text/event-stream" },
-      });
-    }
-  }
+  // Auth errors are returned as SSE events so the client stream handler can process them uniformly
+  const auth = await getAppAuth(params.id);
+  if (!auth.ok) return sseErr(auth.error, auth.status);
 
   const { datasetId, question, history } = (await req.json()) as {
     datasetId: string;
@@ -56,10 +25,7 @@ export async function POST(
   };
 
   if (!datasetId || !question?.trim()) {
-    return new Response(sseEvent({ type: "error", message: "datasetId and question are required" }), {
-      status: 400,
-      headers: { "Content-Type": "text/event-stream" },
-    });
+    return sseErr("datasetId and question are required", 400);
   }
 
   const { data: dataset } = await supabase
@@ -69,12 +35,7 @@ export async function POST(
     .eq("app_id", params.id)
     .single();
 
-  if (!dataset) {
-    return new Response(sseEvent({ type: "error", message: "Dataset not found" }), {
-      status: 404,
-      headers: { "Content-Type": "text/event-stream" },
-    });
-  }
+  if (!dataset) return sseErr("Dataset not found", 404);
 
   const { data: files } = await supabase
     .from("app_files")
@@ -82,11 +43,7 @@ export async function POST(
     .eq("app_id", params.id)
     .order("file_path");
 
-  const datasetRef = {
-    projectId: dataset.gcp_project_id,
-    datasetId: dataset.dataset_id,
-  };
-
+  const datasetRef = { projectId: dataset.gcp_project_id, datasetId: dataset.dataset_id };
   const memory = await readAppMemory(params.id);
   const systemPrompt = buildSystemPrompt(datasetRef, files ?? [], memory);
   const messages: Message[] = [...(history ?? []), { role: "user", content: question }];
@@ -101,7 +58,7 @@ export async function POST(
         const result = await runAgentTurn(messages, {
           appId: params.id,
           datasetRef,
-          accessToken: session.accessToken,
+          accessToken: auth.session.accessToken,
           systemPrompt,
           onProgress: (event: ProgressEvent) => send(event),
         });
@@ -111,19 +68,13 @@ export async function POST(
         } else {
           send({ type: "done", answer: result.finalText, history: messages, queries: result.queries, steps: result.steps });
         }
-      } catch (err) {
-        send({ type: "error", message: err instanceof Error ? err.message : "Unknown error" });
+      } catch (e) {
+        send({ type: "error", message: e instanceof Error ? e.message : "Unknown error" });
       } finally {
         controller.close();
       }
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  return new Response(stream, { headers: SSE_HEADERS });
 }
