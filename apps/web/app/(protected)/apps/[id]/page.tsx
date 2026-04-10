@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowLeft, BookOpen, Brain, ChevronDown, ChevronRight, Copy,
-  Check, Database, FileText, FolderOpen, Loader2, Search,
+  Check, Database, FileText, FolderOpen, Loader2, Plus, Search,
   Send, Table2, Terminal, X, BookMarked,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,143 @@ interface ChatMessage {
   steps?: AgentStep[];
 }
 
+// ── Conversation storage helpers ───────────────────────────────────────────────
+interface ConversationMeta { id: string; title: string; updatedAt: number }
+interface ConvIndex { activeId: string; conversations: ConversationMeta[] }
+
+const idxKey  = (a: string, d: string)             => `bq-conv-index-v1:${a}:${d}`;
+const dataKey = (a: string, d: string, c: string)  => `bq-conv-v1:${a}:${d}:${c}`;
+
+function loadIndex(a: string, d: string): ConvIndex | null {
+  try { const s = localStorage.getItem(idxKey(a, d)); return s ? JSON.parse(s) : null; } catch { return null; }
+}
+function saveIndex(a: string, d: string, idx: ConvIndex) {
+  try { localStorage.setItem(idxKey(a, d), JSON.stringify(idx)); } catch { /* quota */ }
+}
+function loadConvData(a: string, d: string, c: string): { chat: ChatMessage[]; history: Message[] } {
+  try { const s = localStorage.getItem(dataKey(a, d, c)); return s ? JSON.parse(s) : { chat: [], history: [] }; }
+  catch { return { chat: [], history: [] }; }
+}
+function saveConvData(a: string, d: string, c: string, chat: ChatMessage[], history: Message[]) {
+  try { localStorage.setItem(dataKey(a, d, c), JSON.stringify({ chat: chat.slice(-30), history: history.slice(-60) })); }
+  catch { /* quota */ }
+}
+function dropConvData(a: string, d: string, c: string) {
+  try { localStorage.removeItem(dataKey(a, d, c)); } catch { /* ignore */ }
+}
+function freshConv(): ConversationMeta {
+  return { id: crypto.randomUUID(), title: "New conversation", updatedAt: Date.now() };
+}
+
+// ── useConversations hook ──────────────────────────────────────────────────────
+// Manages a list of named conversations per app+dataset, all in localStorage.
+// The loadedFor guard prevents the save effects from firing with stale state
+// when the dataset or active conversation changes.
+function useConversations(appId: string, datasetId: string) {
+  const [conversations, setConversations] = useState<ConversationMeta[]>([]);
+  const [activeId, setActiveId]           = useState<string | null>(null);
+  const [chat, setChat]                   = useState<ChatMessage[]>([]);
+  const [history, setHistory]             = useState<Message[]>([]);
+  const [loadedFor, setLoadedFor]         = useState<{ datasetId: string; convId: string } | null>(null);
+
+  // Load conversation list + active conversation when dataset changes
+  useEffect(() => {
+    if (!datasetId) return;
+    setLoadedFor(null);
+
+    const idx = loadIndex(appId, datasetId);
+    let convs: ConversationMeta[];
+    let targetId: string;
+
+    if (!idx || idx.conversations.length === 0) {
+      const f = freshConv();
+      convs    = [f];
+      targetId = f.id;
+      saveIndex(appId, datasetId, { activeId: targetId, conversations: convs });
+    } else {
+      convs    = idx.conversations;
+      targetId = (idx.activeId && convs.find((c) => c.id === idx.activeId)) ? idx.activeId : convs[0].id;
+    }
+
+    const data = loadConvData(appId, datasetId, targetId);
+    setConversations(convs);
+    setActiveId(targetId);
+    setChat(data.chat);
+    setHistory(data.history);
+    setLoadedFor({ datasetId, convId: targetId });
+  }, [appId, datasetId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist chat + history whenever they change (guarded against stale state)
+  useEffect(() => {
+    if (!loadedFor || loadedFor.datasetId !== datasetId || loadedFor.convId !== activeId || !activeId) return;
+    saveConvData(appId, datasetId, activeId, chat, history);
+  }, [chat, history]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update conversation title and sort order when messages are added/removed
+  useEffect(() => {
+    if (!loadedFor || loadedFor.datasetId !== datasetId || loadedFor.convId !== activeId || !activeId || chat.length === 0) return;
+    const title   = chat.find((m) => m.role === "user")?.text.slice(0, 50) ?? "New conversation";
+    const updated = conversations
+      .map((c) => (c.id === activeId ? { ...c, title, updatedAt: Date.now() } : c))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    setConversations(updated);
+    saveIndex(appId, datasetId, { activeId, conversations: updated });
+  }, [chat.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function newConversation() {
+    if (!datasetId) return;
+    const f    = freshConv();
+    const next = [f, ...conversations];
+    setConversations(next);
+    setActiveId(f.id);
+    setChat([]);
+    setHistory([]);
+    setLoadedFor({ datasetId, convId: f.id });
+    saveIndex(appId, datasetId, { activeId: f.id, conversations: next });
+  }
+
+  function switchConversation(convId: string) {
+    if (convId === activeId || !datasetId) return;
+    const data = loadConvData(appId, datasetId, convId);
+    setActiveId(convId);
+    setChat(data.chat);
+    setHistory(data.history);
+    setLoadedFor({ datasetId, convId });
+    saveIndex(appId, datasetId, { activeId: convId, conversations });
+  }
+
+  function deleteConversation(convId: string) {
+    if (!datasetId) return;
+    dropConvData(appId, datasetId, convId);
+    const next = conversations.filter((c) => c.id !== convId);
+
+    if (next.length === 0) {
+      const f = freshConv();
+      saveIndex(appId, datasetId, { activeId: f.id, conversations: [f] });
+      setConversations([f]);
+      setActiveId(f.id);
+      setChat([]);
+      setHistory([]);
+      setLoadedFor({ datasetId, convId: f.id });
+      return;
+    }
+
+    const newActiveId = convId === activeId ? next[0].id : activeId!;
+    saveIndex(appId, datasetId, { activeId: newActiveId, conversations: next });
+    setConversations(next);
+
+    if (convId === activeId) {
+      const data = loadConvData(appId, datasetId, next[0].id);
+      setActiveId(next[0].id);
+      setChat(data.chat);
+      setHistory(data.history);
+      setLoadedFor({ datasetId, convId: next[0].id });
+    }
+  }
+
+  return { conversations, activeId, chat, setChat, history, setHistory, newConversation, switchConversation, deleteConversation };
+}
+
 function eventToStep(event: Record<string, unknown>): LiveStep | null {
   switch (event.type) {
     case "thinking":       return { icon: "thinking", label: "Thinking…", expandable: false, status: "running" };
@@ -55,8 +192,7 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
   const [datasets, setDatasets] = useState<DbAppDataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [loading, setLoading] = useState(true);
-  const [chat, setChat] = useState<ChatMessage[]>([]);
-  const [history, setHistory] = useState<Message[]>([]);
+  const { conversations, activeId, chat, setChat, history, setHistory, newConversation, switchConversation, deleteConversation } = useConversations(params.id, selectedDatasetId);
   const [question, setQuestion] = useState("");
   const [thinking, setThinking] = useState(false);
   const [liveSteps, setLiveSteps] = useState<LiveStep[]>([]);
@@ -192,7 +328,7 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
             ) : (
               <select
                 value={selectedDatasetId}
-                onChange={(e) => { setSelectedDatasetId(e.target.value); setChat([]); setHistory([]); }}
+                onChange={(e) => setSelectedDatasetId(e.target.value)}
                 className="bg-secondary text-secondary-foreground text-xs rounded-md px-2 py-1 border border-border focus:outline-none focus:ring-1 focus:ring-ring transition-colors cursor-pointer"
               >
                 {datasets.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
@@ -213,8 +349,19 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
         </div>
       </header>
 
-      {/* ── Chat area ── */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex min-h-0">
+        {/* ── Conversation sidebar ── */}
+        <ConversationSidebar
+          conversations={conversations}
+          activeId={activeId}
+          onNew={newConversation}
+          onSwitch={switchConversation}
+          onDelete={deleteConversation}
+        />
+
+        <div className="flex-1 flex flex-col min-w-0">
+        {/* ── Chat area ── */}
+        <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
           {/* Empty state */}
           {chat.length === 0 && !thinking && (
@@ -314,9 +461,71 @@ export default function AppQueryPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
+        </div>{/* end flex-1 flex flex-col */}
+      </div>{/* end flex-1 flex min-h-0 */}
+
       {/* ── Memory panel ── */}
       {memoryOpen && <MemoryPanel appId={params.id} onClose={() => setMemoryOpen(false)} />}
     </div>
+  );
+}
+
+// ── Conversation sidebar ───────────────────────────────────────────────────────
+function ConversationSidebar({
+  conversations,
+  activeId,
+  onNew,
+  onSwitch,
+  onDelete,
+}: {
+  conversations: ConversationMeta[];
+  activeId: string | null;
+  onNew: () => void;
+  onSwitch: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <aside className="w-52 flex-shrink-0 border-r border-border bg-background flex flex-col">
+      <div className="p-2 border-b border-border">
+        <button
+          onClick={onNew}
+          className="w-full flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg px-3 py-2 transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          New conversation
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto py-1">
+        {conversations.map((conv) => (
+          <div
+            key={conv.id}
+            className={cn(
+              "group flex items-center gap-1 mx-1 my-0.5 rounded-lg px-2 py-2",
+              conv.id === activeId ? "bg-accent" : "hover:bg-accent/50 cursor-pointer"
+            )}
+          >
+            <button
+              onClick={() => onSwitch(conv.id)}
+              className="flex-1 text-left min-w-0"
+            >
+              <span className={cn(
+                "text-xs block truncate",
+                conv.id === activeId ? "text-foreground font-medium" : "text-muted-foreground"
+              )}>
+                {conv.title}
+              </span>
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(conv.id); }}
+              className="flex-shrink-0 opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-all"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </aside>
   );
 }
 
